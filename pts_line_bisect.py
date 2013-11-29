@@ -206,6 +206,7 @@ class LineBisecter(object):
     Optional args lo (default 0) and hi (default len(a)) bound the
     slice of a to be searched.
     """
+    # TODO(pts): Test this.
     return self.bisect_way(x, False, lo, hi, cache)
 
   def bisect_left(self, x, lo=0, hi=None, cache=None):
@@ -222,12 +223,12 @@ class LineBisecter(object):
     """
     return self.bisect_way(x, True, lo, hi, cache)
 
-  def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None,
+  def bisect_interval(self, x, y=None, is_open=False, lo=0, hi=None,
                       cache=None):
     """Returns (start, end) offset pairs for lines between x and y.
 
-    If is_closed is true, then the interval consits of lines x <= line <= y.
-    Otherwise the interval consists of lines x <= line < y.
+    If is_open is true, then the interval consits of lines x <= line < y.
+    Otherwise the interval consists of lines x <= line <= y.
     """
     x = x.rstrip('\n')
     if y is None:
@@ -237,7 +238,7 @@ class LineBisecter(object):
     if cache is None:
       cache = []
     start = self.bisect_left(x, lo, hi, cache)
-    end = self.bisect_way(y, not is_closed, start, hi, cache)
+    end = self.bisect_way(y, is_open, start, hi, cache)
     return start, end
 
   def bisect_open(self, x, y=None, lo=0, hi=None):
@@ -260,40 +261,40 @@ def test_extra(extra_len):
     lb = LineBisecter(a, len(a.getvalue()) - extra_len)
   else:
     lb = LineBisecter(a)
-  def bisect_interval(x, y=None, is_closed=True):
-    start, end = lb.bisect_interval(x, y, is_closed)
+  def bisect_interval(x, y=None, is_open=False):
+    start, end = lb.bisect_interval(x, y, is_open)
     data = a.getvalue()[: lb.size]
     assert 0 <= start <= end <= lb.size, (start, end, lb.size)
     if start == end:
       return '-' + data[start : start + 5 ]
     return data[start : end]
   assert bisect_interval('30') == '30\n30\n30\n30\n30\n'
-  assert bisect_interval('30', is_closed=False) == '-30\n30'
+  assert bisect_interval('30', is_open=True) == '-30\n30'
   assert bisect_interval('31') == '-40for'
-  assert bisect_interval('31', is_closed=False) == '-40for'
+  assert bisect_interval('31', is_open=True) == '-40for'
   assert bisect_interval('4') == '-40for'
-  assert bisect_interval('4', is_closed=False) == '-40for'
+  assert bisect_interval('4', is_open=True) == '-40for'
   assert bisect_interval('40') == '-40for'
-  assert bisect_interval('40', is_closed=False) == '-40for'
+  assert bisect_interval('40', is_open=True) == '-40for'
   assert bisect_interval('41') == '-'
-  assert bisect_interval('41', is_closed=False) == '-'
+  assert bisect_interval('41', is_open=True) == '-'
   assert bisect_interval('25') == '-30\n30'
-  assert bisect_interval('25', is_closed=False) == '-30\n30'
+  assert bisect_interval('25', is_open=True) == '-30\n30'
   assert bisect_interval('15') == '-20twe'
-  assert bisect_interval('15', is_closed=False) == '-20twe'
+  assert bisect_interval('15', is_open=True) == '-20twe'
   assert bisect_interval('1') == '-10ten'
-  assert bisect_interval('1', is_closed=False) == '-10ten'
+  assert bisect_interval('1', is_open=True) == '-10ten'
   assert bisect_interval('') == '-10ten'
-  assert bisect_interval('', is_closed=False) == '-10ten'
+  assert bisect_interval('', is_open=True) == '-10ten'
   assert bisect_interval('10ten') == '10ten\n'
-  assert bisect_interval('10ten', is_closed=False) == '-10ten'
+  assert bisect_interval('10ten', is_open=True) == '-10ten'
   assert bisect_interval('10ten\n\n\n') == '10ten\n'
   assert bisect_interval('10', '20') == '10ten\n'
-  assert bisect_interval('10', '20', False) == '10ten\n'
+  assert bisect_interval('10', '20', True) == '10ten\n'
   assert bisect_interval('10', '20twenty') == '10ten\n20twenty\n'
-  assert bisect_interval('10', '20twenty', is_closed=False) == '10ten\n'
+  assert bisect_interval('10', '20twenty', is_open=True) == '10ten\n'
   assert bisect_interval('10', '30') == '10ten\n20twenty\n30\n30\n30\n30\n30\n'
-  assert bisect_interval('10', '30', False) == '10ten\n20twenty\n'
+  assert bisect_interval('10', '30', True) == '10ten\n20twenty\n'
 
 
 def test():
