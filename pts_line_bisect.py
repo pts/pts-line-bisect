@@ -18,35 +18,29 @@ class LineBisecter(object):
     self.f = f
     self.size = size
 
-  def _readline_at(self, ofs):
-    """Returns line after (ofs - 1), or () on EOF (or truncation at self.size)."""
+  def _readline_at_fofs(self, fofs):
+    """Returns line at fofs, or () on EOF (or truncation at self.size)."""
+    if fofs < 0:
+      raise ValueError('Negative line read offset.')
     size = self.size
     f = self.f
-    # TODO(pts): Maintain an offset map and a line cache.
-    if ofs >= size:
+    if fofs >= size:
       return ()
-    if ofs:
-      if ofs < 0:
-        raise ValueError('Negative line read offset.')
-      ofs -= 1
-      f.seek(ofs)
-      line = f.readline()
-      if not line:
-        return ()
-      ofs += len(line)
-    else:
-      f.seek(0)
+    # TODO(pts): Maintain an offset map and a line cache.
+    if f.tell() != fofs:  # `if' needed to prevent unnecessary lseek(2) call.
+      f.seek(fofs)
     line = f.readline()
     if not line:
       if self.size > ofs:
-        self.size = ofs 
+        self.size = ofs
       return ()
     line = line.rstrip('\n')
-    if ofs + len(line) > size:
-      line = line[:size - ofs]
+    if fofs + len(line) > size:
+      line = line[:size - fofs]
     return line
 
-  def _get_ofs_fwd(self, ofs):
+  def _get_fofs(self, ofs):
+    """Returns fofs (fofs >= ofs)."""
     if not ofs:
       return 0
     if ofs < 0:
@@ -57,13 +51,17 @@ class LineBisecter(object):
     ofs -= 1
     f.seek(ofs)
     line = f.readline()
-    return ofs + len(line)
+    if line:
+      return min(self.size, ofs + len(line))
+    if self.size > ofs:
+      self.size = ofs
+    return ofs
 
   # We encode EOF as () and we use the fact that it is larger than any string.
   assert '' < ()
   assert '\xff' < ()
   assert '\xff' * 5 < ()
-      
+
   def bisect_right(self, x, lo=0, hi=None):
     """Return the largest offset where to insert line x.
 
@@ -85,12 +83,12 @@ class LineBisecter(object):
       hi = self.size
     while lo < hi:
       mid = (lo + hi) >> 1
-      y = self._readline_at(mid)
+      y = self._readline_at_fofs(self._get_fofs(mid))
       if x < y:
         hi = mid
       else:
         lo = mid + 1
-    return self._get_ofs_fwd(lo)
+    return self._get_fofs(lo)
 
   def bisect_left(self, x, lo=0, hi=None):
     """Return the smallest offset where to insert line x.
@@ -113,12 +111,12 @@ class LineBisecter(object):
       return 0
     while lo < hi:
       mid = (lo + hi) // 2
-      y = self._readline_at(mid)
+      y = self._readline_at_fofs(self._get_fofs(mid))
       if y < x:
         lo = mid + 1
       else:
         hi = mid
-    return self._get_ofs_fwd(lo)
+    return self._get_fofs(lo)
 
   def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None):
     """Returns (start, end) offset pairs for lines between x and y.
@@ -150,15 +148,18 @@ class LineBisecter(object):
     return start, end
 
 
-def test():
+def test_extra(extra_len):
   import cStringIO
-  a = cStringIO.StringIO('10ten\n20twenty\n30\n30\n30\n30\n30\n40forty')
-  lb = LineBisecter(a)
+  a = cStringIO.StringIO(
+      '10ten\n20twenty\n30\n30\n30\n30\n30\n40forty' + 'z' * extra_len)
+  if extra_len:
+    lb = LineBisecter(a, len(a.getvalue()) - extra_len)
+  else:
+    lb = LineBisecter(a)
   def bisect_interval(x, y=None, is_closed=True):
     start, end = lb.bisect_interval(x, y, is_closed)
-    data = a.getvalue()
-    assert start >= 0
-    assert end <= len(data)
+    data = a.getvalue()[: lb.size]
+    assert 0 <= start <= end <= lb.size, (start, end, lb.size)
     if start == end:
       return '-' + data[start : start + 5 ]
     return data[start : end]
@@ -189,6 +190,13 @@ def test():
   assert bisect_interval('10', '20twenty', is_closed=False) == '10ten\n'
   assert bisect_interval('10', '30') == '10ten\n20twenty\n30\n30\n30\n30\n30\n'
   assert bisect_interval('10', '30', False) == '10ten\n20twenty\n'
+
+
+def test():
+  test_extra(0)
+  test_extra(1)
+  test_extra(2)
+  test_extra(42)
   print 'pts_line_bisect OK.'
 
 
