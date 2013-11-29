@@ -211,7 +211,7 @@ class LineBisecter(object):
       return _get_fofs_using_cache(cache, lo, fofs_getter)
     line_getter = self._readline_at_fofs
     while lo < hi:
-      mid = (lo + hi) // 2
+      mid = (lo + hi) >> 1
       midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
       # TODO(pts): Don't even do the comparison if midf hasn't changed since
       # the last call.
