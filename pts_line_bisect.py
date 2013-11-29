@@ -45,6 +45,9 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter):
     else:
       if len(ab) > 1:  # Don't keep more than 2 items in the cache.
         del ab[0]
+      # TODO(pts): Don't remember the line, just if it was smaller than x.
+      # That way we won't share the cache between lookups of different x.
+      # This would be a good C optimization: no need to keep the line in mem.
       ab.append([fofs, line_getter(fofs), ofs])
   return ab[-1]  # Return the most recent item of the cache.
 
@@ -172,15 +175,22 @@ class LineBisecter(object):
     if lo >= hi:
       return _get_fofs_using_cache(cache, lo, fofs_getter)
     line_getter = self._readline_at_fofs
+    yold = None
     while lo < hi:
       mid = (lo + hi) >> 1
       midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
-      # TODO(pts): Don't even do the comparison if midf hasn't changed since
-      # the last call.
-      if x < y:
-        hi = mid
+      if y is yold:  # Equivalent test for C: `mid == midold'.
+        if gold:  # Avoid possible expensive comparison of x and y.
+          hi = mid
+        else:
+          lo = mid + 1
       else:
-        lo = mid + 1
+        yold = y
+        gold = x < y
+        if x < y:
+          hi = mid
+        else:
+          lo = mid + 1
     if mid != lo:
       midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
@@ -210,15 +220,22 @@ class LineBisecter(object):
     if lo >= hi:
       return _get_fofs_using_cache(cache, lo, fofs_getter)
     line_getter = self._readline_at_fofs
+    yold = None
     while lo < hi:
       mid = (lo + hi) >> 1
       midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
-      # TODO(pts): Don't even do the comparison if midf hasn't changed since
-      # the last call.
-      if y < x:
-        lo = mid + 1
+      if y is yold:  # Equivalent test for C: `mid == midold'.
+        if gold:  # Avoid possible expensive comparison of x and y.
+          hi = mid
+        else:
+          lo = mid + 1
       else:
-        hi = mid
+        yold = y
+        gold = x <= y
+        if gold:
+          hi = mid
+        else:
+          lo = mid + 1
     if mid != lo:
       midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
