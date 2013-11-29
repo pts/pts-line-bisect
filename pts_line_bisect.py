@@ -150,69 +150,18 @@ class LineBisecter(object):
   assert '\xff' < ()
   assert '\xff' * 5 < ()
 
-  def bisect_right(self, x, lo=0, hi=None, cache=None):
-    """Return the largest offset where to insert line x.
-
-    To initialize a shared cache, set it to [], and pass it as cache=.
-
-    Similar to bisect.bisect_right.
-
-    The return value i is such that all e in a[:i] have e <= x, and all e in
-    a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
-    insert just after the rightmost x already there.
-
-    Optional args lo (default 0) and hi (default len(a)) bound the
-    slice of a to be searched.
-    """
-    x = x.rstrip('\n')
-    if lo < 0:
-      raise ValueError('lo must be non-negative')
-    if hi is None or hi > self.size:
-      hi = self.size
-    if cache is None:
-      cache = []
-    fofs_getter = self._get_fofs
-    if lo >= hi:
-      return _get_fofs_using_cache(cache, lo, fofs_getter)
-    line_getter = self._readline_at_fofs
-    yold = None
-    while lo < hi:
-      mid = (lo + hi) >> 1
-      midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
-      if y is yold:  # Equivalent test for C: `mid == midold'.
-        if gold:  # Avoid possible expensive comparison of x and y.
-          hi = mid
-        else:
-          lo = mid + 1
-      else:
-        yold = y
-        gold = x < y
-        if x < y:
-          hi = mid
-        else:
-          lo = mid + 1
-    if mid != lo:
-      midf = _get_fofs_using_cache(cache, lo, fofs_getter)
-    return midf
-
-  def bisect_left(self, x, lo=0, hi=None, cache=None):
+  def bisect_way(self, x, is_left, lo=0, hi=None, cache=None):
     """Return the smallest offset where to insert line x.
 
-    Similar to bisect.bisect_left.
-
-    The return value i is such that all e in a[:i] have e < x, and all e in
-    a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
-    insert just before the leftmost x already there.
-
-    Optional args lo (default 0) and hi (default len(a)) bound the
-    slice of a to be searched.
+    With is_left being true, emulates bisect_left, otherwise emulates
+    bisect_right.
     """
     x = x.rstrip('\n')
     if lo < 0:
       raise ValueError('lo must be non-negative')
     if hi is None or hi > self.size:
       hi = self.size
-    if not x:  # Shortcut.
+    if is_left and not x:  # Shortcut.
       return 0
     if cache is None:
       cache = []
@@ -231,7 +180,10 @@ class LineBisecter(object):
           lo = mid + 1
       else:
         yold = y
-        gold = x <= y
+        if is_left:
+          gold = x <= y
+        else:
+          gold = x < y
         if gold:
           hi = mid
         else:
@@ -239,6 +191,36 @@ class LineBisecter(object):
     if mid != lo:
       midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
+
+  def bisect_right(self, x, lo=0, hi=None, cache=None):
+    """Return the largest offset where to insert line x.
+
+    To initialize a shared cache, set it to [], and pass it as cache=.
+
+    Similar to bisect.bisect_right.
+
+    The return value i is such that all e in a[:i] have e <= x, and all e in
+    a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
+    insert just after the rightmost x already there.
+
+    Optional args lo (default 0) and hi (default len(a)) bound the
+    slice of a to be searched.
+    """
+    return self.bisect_way(x, False, lo, hi, cache)
+
+  def bisect_left(self, x, lo=0, hi=None, cache=None):
+    """Return the smallest offset where to insert line x.
+
+    Similar to bisect.bisect_left.
+
+    The return value i is such that all e in a[:i] have e < x, and all e in
+    a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
+    insert just before the leftmost x already there.
+
+    Optional args lo (default 0) and hi (default len(a)) bound the
+    slice of a to be searched.
+    """
+    return self.bisect_way(x, True, lo, hi, cache)
 
   def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None,
                       cache=None):
@@ -255,10 +237,7 @@ class LineBisecter(object):
     if cache is None:
       cache = []
     start = self.bisect_left(x, lo, hi, cache)
-    if is_closed:
-      end = self.bisect_right(y, start, hi, cache)
-    else:
-      end = self.bisect_left(y, start, hi, cache)
+    end = self.bisect_way(y, not is_closed, start, hi, cache)
     return start, end
 
   def bisect_open(self, x, y=None, lo=0, hi=None):
