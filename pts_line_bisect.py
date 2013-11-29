@@ -21,6 +21,7 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter):
     List or tuple of the form [fofs, line, dummy]. The dummy value is useless
     to the caller.
   """
+  # TODO(pts): Add support for caches larger than 2 (possibly unlimited).
   global _hitc, _xhitc, _allc
   _allc += 1
   assert len(ab) <= 2
@@ -88,6 +89,9 @@ class LineBisecter(object):
 
   If you use sort(1) to sort the file, run it as `LC_ALL=C sort' to make it
   lexicographically sorted, ignoring locale.
+
+  Methods are not thread-safe! They use the file object and the cache (if any)
+  as a shared resource.
   """
 
   __slots__ = ('f', 'size')
@@ -143,8 +147,10 @@ class LineBisecter(object):
   assert '\xff' < ()
   assert '\xff' * 5 < ()
 
-  def bisect_right(self, x, lo=0, hi=None):
+  def bisect_right(self, x, lo=0, hi=None, cache=None):
     """Return the largest offset where to insert line x.
+
+    To initialize a shared cache, set it to [], and pass it as cache=.
 
     Similar to bisect.bisect_right.
 
@@ -160,8 +166,8 @@ class LineBisecter(object):
       raise ValueError('lo must be non-negative')
     if hi is None or hi > self.size:
       hi = self.size
-    # TODO(pts): Share cache with left and right.
-    cache = []
+    if cache is None:
+      cache = []
     fofs_getter = self._get_fofs
     if lo >= hi:
       return _get_fofs_using_cache(cache, lo, fofs_getter)
@@ -179,7 +185,7 @@ class LineBisecter(object):
       midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
 
-  def bisect_left(self, x, lo=0, hi=None):
+  def bisect_left(self, x, lo=0, hi=None, cache=None):
     """Return the smallest offset where to insert line x.
 
     Similar to bisect.bisect_left.
@@ -198,19 +204,27 @@ class LineBisecter(object):
       hi = self.size
     if not x:  # Shortcut.
       return 0
+    if cache is None:
+      cache = []
+    fofs_getter = self._get_fofs
+    if lo >= hi:
+      return _get_fofs_using_cache(cache, lo, fofs_getter)
+    line_getter = self._readline_at_fofs
     while lo < hi:
       mid = (lo + hi) // 2
-      midf = self._get_fofs(mid)
-      y = self._readline_at_fofs(midf)
+      midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
+      # TODO(pts): Don't even do the comparison if midf hasn't changed since
+      # the last call.
       if y < x:
         lo = mid + 1
       else:
         hi = mid
-    else:
-      return self._get_fofs(lo)
+    if mid != lo:
+      midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
 
-  def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None):
+  def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None,
+                      cache=None):
     """Returns (start, end) offset pairs for lines between x and y.
 
     If is_closed is true, then the interval consits of lines x <= line <= y.
@@ -221,11 +235,13 @@ class LineBisecter(object):
       y = x
     else:
       y = y.strip('\n')
-    start = self.bisect_left(x, lo, hi)
+    if cache is None:
+      cache = []
+    start = self.bisect_left(x, lo, hi, cache)
     if is_closed:
-      end = self.bisect_right(y, start, hi)
+      end = self.bisect_right(y, start, hi, cache)
     else:
-      end = self.bisect_left(y, start, hi)
+      end = self.bisect_left(y, start, hi, cache)
     return start, end
 
   def bisect_open(self, x, y=None, lo=0, hi=None):
