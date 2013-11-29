@@ -8,25 +8,32 @@ _hitc = 0
 _missc = 0
 
 
-class LineCache(object):
+class TwoLineCache(object):
   """Helper class for caching lines read and their offsets."""
 
-  __slots__ = ('dict', 'f')
+  __slots__ = ('ab', 'f')
 
   def __init__(self, f):
-    self.dict = {}
+    # Contains at most 2 (fofs, line) pairs, in fetch time ascending order.
+    self.ab = []
     self.f = f
 
   def get(self, fofs):
-    # The implementation is similar to collections.defaultdict.get, but it also
-    # updates the counters.
     global _hitc, _missc
-    line = self.dict.get(fofs)
-    if line is None:
-      self.dict[fofs] = line = self.f(fofs)
-      _missc += 1
-    else:
+    ab = self.ab
+    if ab and ab[0][0] == fofs:
       _hitc += 1
+      ab.reverse()  # Move ab[0] to the end since we've just fetched it.
+      return ab[-1][1]
+    elif len(ab) > 1 and ab[1][0] == fofs:
+      _hitc += 1
+      return ab[1][1]
+    _missc += 1
+    if len(ab) > 1:  # Don't keep more than 2 items in the cache.
+      del ab[0]
+    line = self.f(fofs)
+    ab.append((fofs, line))
+    assert len(ab) <= 2
     return line
 
 
@@ -108,7 +115,7 @@ class LineBisecter(object):
     if hi is None or hi > self.size:
       hi = self.size
     # TODO(pts): Share cache with left and right.
-    cache = LineCache(self._readline_at_fofs)
+    cache = TwoLineCache(self._readline_at_fofs)
     while lo < hi:
       mid = (lo + hi) >> 1
       midf = self._get_fofs(mid)
