@@ -169,25 +169,21 @@ class LineBisecter(object):
     if lo >= hi:
       return _get_fofs_using_cache(cache, lo, fofs_getter)
     line_getter = self._readline_at_fofs
+    if is_left:
+      tester = x.__le__  # x <= y.
+    else:
+      tester = x.__lt__  # x < y.
     yold = None
     while lo < hi:
       mid = (lo + hi) >> 1
       midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
-      if y is yold:  # Equivalent test for C: `mid == midold'.
-        if gold:  # Avoid possible expensive comparison of x and y.
-          hi = mid
-        else:
-          lo = mid + 1
-      else:
+      if y is not yold:  # Equivalent test for C: `mid != midold'.
         yold = y
-        if is_left:
-          gold = x <= y
-        else:
-          gold = x < y
-        if gold:
-          hi = mid
-        else:
-          lo = mid + 1
+        gold = tester(y)  # x <= y if is_left else x < y. 
+      if gold:
+        hi = mid
+      else:
+        lo = mid + 1
     if mid != lo:
       midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
