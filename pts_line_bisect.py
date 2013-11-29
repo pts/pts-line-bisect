@@ -3,6 +3,32 @@
 
 """Newline-separated file line bisection algorithms."""
 
+# TODO(pts): Remove once development has finished.
+_hitc = 0
+_missc = 0
+
+
+class LineCache(object):
+  """Helper class for caching lines read and their offsets."""
+
+  __slots__ = ('dict', 'f')
+
+  def __init__(self, f):
+    self.dict = {}
+    self.f = f
+
+  def get(self, fofs):
+    # The implementation is similar to collections.defaultdict.get, but it also
+    # updates the counters.
+    global _hitc, _missc
+    line = self.dict.get(fofs)
+    if line is None:
+      self.dict[fofs] = line = self.f(fofs)
+      _missc += 1
+    else:
+      _hitc += 1
+    return line
+
 
 class LineBisecter(object):
   """Bisection (binary) search on newline-separated, sorted file lines.
@@ -10,6 +36,8 @@ class LineBisecter(object):
   If you use sort(1) to sort the file, run it as `LC_ALL=C sort' to make it
   lexicographically sorted, ignoring locale.
   """
+
+  __slots__ = ('f', 'size')
 
   def __init__(self, f, size=None):
     if size is None:
@@ -79,10 +107,12 @@ class LineBisecter(object):
       raise ValueError('lo must be non-negative')
     if hi is None or hi > self.size:
       hi = self.size
+    # TODO(pts): Share cache with left and right.
+    cache = LineCache(self._readline_at_fofs)
     while lo < hi:
       mid = (lo + hi) >> 1
       midf = self._get_fofs(mid)
-      y = self._readline_at_fofs(midf)
+      y = cache.get(midf)
       if x < y:
         hi = mid
       else:
@@ -202,6 +232,8 @@ def test():
   test_extra(2)
   test_extra(42)
   # TODO(pts): Add tests for '\n\n\n' in the beginning.
+  print 'cache hit/all = %d%%' % ((_hitc * 100 + ((_hitc + _missc) >> 1)) //
+      (_hitc + _missc))
   print 'pts_line_bisect OK.'
 
 
