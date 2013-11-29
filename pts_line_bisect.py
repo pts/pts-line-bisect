@@ -11,7 +11,7 @@ _allc = 0
 
 def _get_using_cache(ab, ofs, fofs_getter, line_getter):
   """Get from cache and update cache.
-  
+
   To create an empty cache, set ab to [].
 
   The cache contains 0, or 1 or 2 entries. Each entry is a list of format
@@ -46,6 +46,41 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter):
         del ab[0]
       ab.append([fofs, line_getter(fofs), ofs])
   return ab[-1]  # Return the most recent item of the cache.
+
+
+def _get_fofs_using_cache(ab, ofs, fofs_getter):
+  """Similar to _get_using_cache, but faster because returns fofs only.
+
+  Doesn't update the cache.
+
+  Returns:
+    fofs.
+  """
+  global _hitc, _xhitc, _allc
+  _allc += 1
+  assert len(ab) <= 2
+  if ab and ab[0][2] <= ofs <= ab[0][0]:
+    _xhitc += 1
+    ab.reverse()  # Move ab[0] to the end since we've just fetched it.
+    return ab[-1][0]
+  elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
+    _xhitc += 1
+    return ab[-1][0]
+  else:
+    fofs = fofs_getter(ofs)
+    assert 0 <= ofs <= fofs
+    if ab and ab[0][0] == fofs:
+      _hitc += 1
+      ab.reverse()  # Move ab[0] to the end since we've just fetched it.
+      if ab[-1][2] > ofs:
+        ab[-1][2] = ofs
+    elif len(ab) > 1 and ab[-1][0] == fofs:
+      _hitc += 1
+      if ab[-1][2] > ofs:
+        ab[-1][2] = ofs
+    else:
+      # We don't update the cache, because we don't call line_getter(fofs).
+      return fofs
 
 
 class LineBisecter(object):
@@ -128,8 +163,9 @@ class LineBisecter(object):
     # TODO(pts): Share cache with left and right.
     cache = []
     fofs_getter = self._get_fofs
+    if lo >= hi:
+      return _get_fofs_using_cache(cache, lo, fofs_getter)
     line_getter = self._readline_at_fofs
-    ofsgenf = self._get_fofs
     while lo < hi:
       mid = (lo + hi) >> 1
       midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
@@ -139,8 +175,8 @@ class LineBisecter(object):
         hi = mid
       else:
         lo = mid + 1
-    else:
-      return self._get_fofs(lo)
+    if mid != lo:
+      midf = _get_fofs_using_cache(cache, lo, fofs_getter)
     return midf
 
   def bisect_left(self, x, lo=0, hi=None):
