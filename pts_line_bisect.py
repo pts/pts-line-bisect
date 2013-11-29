@@ -4,63 +4,192 @@
 """Newline-separated file line bisection algorithms."""
 
 
-def bisect_right(a, x, lo=0, hi=None):
-  """Return the index where to insert item x in list a, assuming a is sorted.
+class LineBisecter(object):
+  """Bisection (binary) search on newline-separated, sorted file lines.
 
-  Similar to bisect.bisect_right.
-
-  The return value i is such that all e in a[:i] have e <= x, and all e in
-  a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
-  insert just after the rightmost x already there.
-
-  Optional args lo (default 0) and hi (default len(a)) bound the
-  slice of a to be searched.
+  If you use sort(1) to sort the file, run it as `LC_ALL=C sort' to make it
+  lexicographically sorted, ignoring locale.
   """
 
-  if lo < 0:
-    raise ValueError('lo must be non-negative')
-  if hi is None:
-    hi = len(a)
-  while lo < hi:
-    mid = (lo + hi) >> 1
-    if x < a[mid]:
-      hi = mid
+  def __init__(self, f, size=None):
+    if size is None:
+      f.seek(0, 2)
+      size = f.tell()
+    self.f = f
+    self.size = size
+
+  def _readline_at(self, ofs):
+    """Returns line after (ofs - 1), or () on EOF (or truncation at self.size)."""
+    size = self.size
+    f = self.f
+    # TODO(pts): Maintain an offset map and a line cache.
+    if ofs >= size:
+      return ()
+    if ofs:
+      if ofs < 0:
+        raise ValueError('Negative line read offset.')
+      ofs -= 1
+      f.seek(ofs)
+      line = f.readline()
+      if not line:
+        return ()
+      ofs += len(line)
     else:
-      lo = mid + 1
-  return lo
+      f.seek(0)
+    line = f.readline()
+    if not line:
+      if self.size > ofs:
+        self.size = ofs 
+      return ()
+    line = line.rstrip('\n')
+    if ofs + len(line) > size:
+      line = line[:size - ofs]
+    return line
 
+  def _get_ofs_fwd(self, ofs):
+    if not ofs:
+      return 0
+    if ofs < 0:
+      raise ValueError('Negative line read offset.')
+    if ofs >= self.size:
+      return self.size
+    f = self.f
+    ofs -= 1
+    f.seek(ofs)
+    line = f.readline()
+    return ofs + len(line)
 
-def bisect_left(a, x, lo=0, hi=None):
-  """Return the index where to insert item x in list a, assuming a is sorted.
+  # We encode EOF as () and we use the fact that it is larger than any string.
+  assert '' < ()
+  assert '\xff' < ()
+  assert '\xff' * 5 < ()
+      
+  def bisect_right(self, x, lo=0, hi=None):
+    """Return the largest offset where to insert line x.
 
-  Similar to bisect.bisect_left.
+    Similar to bisect.bisect_right.
 
-  The return value i is such that all e in a[:i] have e < x, and all e in
-  a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
-  insert just before the leftmost x already there.
+    The return value i is such that all e in a[:i] have e <= x, and all e in
+    a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
+    insert just after the rightmost x already there.
 
-  Optional args lo (default 0) and hi (default len(a)) bound the
-  slice of a to be searched.
-  """
+    Optional args lo (default 0) and hi (default len(a)) bound the
+    slice of a to be searched.
+    """
+    x = x.rstrip('\n')
+    if lo < 0:
+      raise ValueError('lo must be non-negative')
+    if not x:  # Shortcut.
+      return 0
+    if hi is None or hi > self.size:
+      hi = self.size
+    while lo < hi:
+      mid = (lo + hi) >> 1
+      y = self._readline_at(mid)
+      if x < y:
+        hi = mid
+      else:
+        lo = mid + 1
+    return self._get_ofs_fwd(lo)
 
-  if lo < 0:
-    raise ValueError('lo must be non-negative')
-  if hi is None:
-    hi = len(a)
-  while lo < hi:
-    mid = (lo + hi) // 2
-    if a[mid] < x:
-      lo = mid + 1
+  def bisect_left(self, x, lo=0, hi=None):
+    """Return the smallest offset where to insert line x.
+
+    Similar to bisect.bisect_left.
+
+    The return value i is such that all e in a[:i] have e < x, and all e in
+    a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
+    insert just before the leftmost x already there.
+
+    Optional args lo (default 0) and hi (default len(a)) bound the
+    slice of a to be searched.
+    """
+    x = x.rstrip('\n')
+    if lo < 0:
+      raise ValueError('lo must be non-negative')
+    if hi is None or hi > self.size:
+      hi = self.size
+    if not x:  # Shortcut.
+      return 0
+    while lo < hi:
+      mid = (lo + hi) // 2
+      y = self._readline_at(mid)
+      if y < x:
+        lo = mid + 1
+      else:
+        hi = mid
+    return self._get_ofs_fwd(lo)
+
+  def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None):
+    """Returns (start, end) offset pairs for lines between x and y.
+
+    If is_closed is true, then the interval consits of lines x <= line <= y.
+    Otherwise the interval consists of lines x <= line < y.
+    """
+    x = x.rstrip('\n')
+    if y is None:
+      y = x
     else:
-      hi = mid
-  return lo
+      y = y.strip('\n')
+    start = self.bisect_left(x, lo, hi)
+    if is_closed:
+      end = self.bisect_right(y, start, hi)
+    else:
+      end = self.bisect_left(y, start, hi)
+    return start, end
+
+  def bisect_open(self, x, y=None, lo=0, hi=None):
+    """Returns (start, end) offset pairs for x <= line < y."""
+    x = x.rstrip('\n')
+    if y is None:
+      y = x
+    else:
+      y = y.strip('\n')
+    start = self.bisect_left(x, lo, hi)
+    end = self.bisect_right(y, start, hi)
+    return start, end
 
 
 def test():
-  a = [10, 20, 30, 30, 30, 30, 30, 40]
-  start = bisect_left(a, 30)
-  end = bisect_right(a, 30)
-  assert a[start : end] == [30] * 5
+  import cStringIO
+  a = cStringIO.StringIO('10ten\n20twenty\n30\n30\n30\n30\n30\n40forty')
+  lb = LineBisecter(a)
+  def bisect_interval(x, y=None, is_closed=True):
+    start, end = lb.bisect_interval(x, y, is_closed)
+    data = a.getvalue()
+    assert start >= 0
+    assert end <= len(data)
+    if start == end:
+      return '-' + data[start : start + 5 ]
+    return data[start : end]
+  assert bisect_interval('30') == '30\n30\n30\n30\n30\n'
+  assert bisect_interval('30', is_closed=False) == '-30\n30'
+  assert bisect_interval('31') == '-40for'
+  assert bisect_interval('31', is_closed=False) == '-40for'
+  assert bisect_interval('4') == '-40for'
+  assert bisect_interval('4', is_closed=False) == '-40for'
+  assert bisect_interval('40') == '-40for'
+  assert bisect_interval('40', is_closed=False) == '-40for'
+  assert bisect_interval('41') == '-'
+  assert bisect_interval('41', is_closed=False) == '-'
+  assert bisect_interval('25') == '-30\n30'
+  assert bisect_interval('25', is_closed=False) == '-30\n30'
+  assert bisect_interval('15') == '-20twe'
+  assert bisect_interval('15', is_closed=False) == '-20twe'
+  assert bisect_interval('1') == '-10ten'
+  assert bisect_interval('1', is_closed=False) == '-10ten'
+  assert bisect_interval('') == '-10ten'
+  assert bisect_interval('', is_closed=False) == '-10ten'
+  assert bisect_interval('10ten') == '10ten\n'
+  assert bisect_interval('10ten', is_closed=False) == '-10ten'
+  assert bisect_interval('10ten\n\n\n') == '10ten\n'
+  assert bisect_interval('10', '20') == '10ten\n'
+  assert bisect_interval('10', '20', False) == '10ten\n'
+  assert bisect_interval('10', '20twenty') == '10ten\n20twenty\n'
+  assert bisect_interval('10', '20twenty', is_closed=False) == '10ten\n'
+  assert bisect_interval('10', '30') == '10ten\n20twenty\n30\n30\n30\n30\n30\n'
+  assert bisect_interval('10', '30', False) == '10ten\n20twenty\n'
+  print 'pts_line_bisect OK.'
 
 
 if __name__ == '__main__':
