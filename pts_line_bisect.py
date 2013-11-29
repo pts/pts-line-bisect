@@ -9,51 +9,43 @@ _xhitc = 0
 _allc = 0
 
 
-class TwoLineCache(object):
-  """Helper class for caching lines read and their offsets."""
+def _get_using_cache(ab, ofs, fofs_getter, line_getter):
+  """Get from cache and update cache.
+  
+  To create an empty cache, set ab to [].
 
-  __slots__ = ('ab', 'f')
+  The cache contains 0, or 1 or 2 entries. Each entry is a list of format
+  [fofs, line, ofs].
 
-  def __init__(self, f):
-    # Contains at most 2 (fofs, line) pairs, in fetch time ascending order.
-    self.ab = []
-    self.f = f
-
-  def get_by_ofs(self, ofs, ofsgenf):
-    global _hitc, _xhitc, _allc
-    _allc += 1
-    ab = self.ab
-    if ab and ab[0][2] <= ofs <= ab[0][0]:
-      _xhitc += 1
-      ab.reverse()  # Move ab[0] to the end since we've just fetched it.
-      return ab[-1]
-    elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
-      _xhitc += 1
-      return ab[-1]
-    fofs = ofsgenf(ofs)
-    return fofs, self.get(ofs, fofs), ofs
-
-  def get(self, ofs, fofs):
-    global _hitc, _missc
-    ab = self.ab
+  Returns:
+    List or tuple of the form [fofs, line, dummy]. The dummy value is useless
+    to the caller.
+  """
+  global _hitc, _xhitc, _allc
+  _allc += 1
+  assert len(ab) <= 2
+  if ab and ab[0][2] <= ofs <= ab[0][0]:
+    _xhitc += 1
+    ab.reverse()  # Move ab[0] to the end since we've just fetched it.
+  elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
+    _xhitc += 1
+  else:
+    fofs = fofs_getter(ofs)
     assert 0 <= ofs <= fofs
     if ab and ab[0][0] == fofs:
       _hitc += 1
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
-      return ab[-1][1]
     elif len(ab) > 1 and ab[-1][0] == fofs:
       _hitc += 1
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
-      return ab[-1][1]
-    if len(ab) > 1:  # Don't keep more than 2 items in the cache.
-      del ab[0]
-    line = self.f(fofs)
-    ab.append([fofs, line, ofs])
-    assert len(ab) <= 2
-    return line
+    else:
+      if len(ab) > 1:  # Don't keep more than 2 items in the cache.
+        del ab[0]
+      ab.append([fofs, line_getter(fofs), ofs])
+  return ab[-1]  # Return the most recent item of the cache.
 
 
 class LineBisecter(object):
@@ -134,11 +126,15 @@ class LineBisecter(object):
     if hi is None or hi > self.size:
       hi = self.size
     # TODO(pts): Share cache with left and right.
-    cache = TwoLineCache(self._readline_at_fofs)
+    cache = []
+    fofs_getter = self._get_fofs
+    line_getter = self._readline_at_fofs
     ofsgenf = self._get_fofs
     while lo < hi:
       mid = (lo + hi) >> 1
-      midf, y, _ = cache.get_by_ofs(mid, ofsgenf)
+      midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
+      # TODO(pts): Don't even do the comparison if midf hasn't changed since
+      # the last call.
       if x < y:
         hi = mid
       else:
