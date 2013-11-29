@@ -83,12 +83,15 @@ class LineBisecter(object):
       hi = self.size
     while lo < hi:
       mid = (lo + hi) >> 1
-      y = self._readline_at_fofs(self._get_fofs(mid))
+      midf = self._get_fofs(mid)
+      y = self._readline_at_fofs(midf)
       if x < y:
         hi = mid
       else:
         lo = mid + 1
-    return self._get_fofs(lo)
+    else:
+      return self._get_fofs(lo)
+    return midf
 
   def bisect_left(self, x, lo=0, hi=None):
     """Return the smallest offset where to insert line x.
@@ -111,12 +114,15 @@ class LineBisecter(object):
       return 0
     while lo < hi:
       mid = (lo + hi) // 2
-      y = self._readline_at_fofs(self._get_fofs(mid))
+      midf = self._get_fofs(mid)
+      y = self._readline_at_fofs(midf)
       if y < x:
         lo = mid + 1
       else:
         hi = mid
-    return self._get_fofs(lo)
+    else:
+      return self._get_fofs(lo)
+    return midf
 
   def bisect_interval(self, x, y=None, is_closed=True, lo=0, hi=None):
     """Returns (start, end) offset pairs for lines between x and y.
