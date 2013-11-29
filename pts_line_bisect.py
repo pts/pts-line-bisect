@@ -5,7 +5,8 @@
 
 # TODO(pts): Remove once development has finished.
 _hitc = 0
-_missc = 0
+_xhitc = 0
+_allc = 0
 
 
 class TwoLineCache(object):
@@ -18,21 +19,39 @@ class TwoLineCache(object):
     self.ab = []
     self.f = f
 
-  def get(self, fofs):
+  def get_by_ofs(self, ofs, ofsgenf):
+    global _hitc, _xhitc, _allc
+    _allc += 1
+    ab = self.ab
+    if ab and ab[0][2] <= ofs <= ab[0][0]:
+      _xhitc += 1
+      ab.reverse()  # Move ab[0] to the end since we've just fetched it.
+      return ab[-1]
+    elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
+      _xhitc += 1
+      return ab[-1]
+    fofs = ofsgenf(ofs)
+    return fofs, self.get(ofs, fofs), ofs
+
+  def get(self, ofs, fofs):
     global _hitc, _missc
     ab = self.ab
+    assert 0 <= ofs <= fofs
     if ab and ab[0][0] == fofs:
       _hitc += 1
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
+      if ab[-1][2] > ofs:
+        ab[-1][2] = ofs
       return ab[-1][1]
-    elif len(ab) > 1 and ab[1][0] == fofs:
+    elif len(ab) > 1 and ab[-1][0] == fofs:
       _hitc += 1
-      return ab[1][1]
-    _missc += 1
+      if ab[-1][2] > ofs:
+        ab[-1][2] = ofs
+      return ab[-1][1]
     if len(ab) > 1:  # Don't keep more than 2 items in the cache.
       del ab[0]
     line = self.f(fofs)
-    ab.append((fofs, line))
+    ab.append([fofs, line, ofs])
     assert len(ab) <= 2
     return line
 
@@ -116,10 +135,10 @@ class LineBisecter(object):
       hi = self.size
     # TODO(pts): Share cache with left and right.
     cache = TwoLineCache(self._readline_at_fofs)
+    ofsgenf = self._get_fofs
     while lo < hi:
       mid = (lo + hi) >> 1
-      midf = self._get_fofs(mid)
-      y = cache.get(midf)
+      midf, y, _ = cache.get_by_ofs(mid, ofsgenf)
       if x < y:
         hi = mid
       else:
@@ -239,8 +258,10 @@ def test():
   test_extra(2)
   test_extra(42)
   # TODO(pts): Add tests for '\n\n\n' in the beginning.
-  print 'cache hit/all = %d%%' % ((_hitc * 100 + ((_hitc + _missc) >> 1)) //
-      (_hitc + _missc))
+  # TODO(pts): Add longer strings where _xhitc is larger.
+  print 'cache xhit/all=%d%% hit/all=%d%%' % (
+      (_xhitc * 100 + (_allc >> 1)) // _allc,
+      (_hitc * 100 + (_allc >> 1)) // _allc)
   print 'pts_line_bisect OK.'
 
 
