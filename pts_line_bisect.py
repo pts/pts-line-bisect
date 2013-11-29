@@ -9,7 +9,7 @@ _xhitc = 0
 _allc = 0
 
 
-def _get_using_cache(ab, ofs, fofs_getter, line_getter):
+def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
   """Get from cache and update cache.
 
   To create an empty cache, set ab to [].
@@ -18,8 +18,9 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter):
   [fofs, line, ofs].
 
   Returns:
-    List or tuple of the form [fofs, line, dummy]. The dummy value is useless
-    to the caller.
+    List or tuple of the form [fofs, g, dummy], where g is a bool indicating
+    the test result (x-is-less-than-line or x-is-less-or-equal-to-line). The
+    dummy value is useless to the caller.
   """
   # TODO(pts): Add support for caches larger than 2 (possibly unlimited).
   global _hitc, _xhitc, _allc
@@ -45,10 +46,9 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter):
     else:
       if len(ab) > 1:  # Don't keep more than 2 items in the cache.
         del ab[0]
-      # TODO(pts): Don't remember the line, just if it was smaller than x.
-      # That way we won't share the cache between lookups of different x.
-      # This would be a good C optimization: no need to keep the line in mem.
-      ab.append([fofs, line_getter(fofs), ofs])
+      # In C we can optimize the combination of line_getter and tester: we
+      # no need to keep the line in mem, we can compare on-the-fly.
+      ab.append([fofs, tester(line_getter(fofs)), ofs])
   return ab[-1]  # Return the most recent item of the cache.
 
 
@@ -153,6 +153,12 @@ class LineBisecter(object):
   def bisect_way(self, x, is_left, lo=0, hi=None, cache=None):
     """Return the smallest offset where to insert line x.
 
+    To initialize a shared cache, set it to [], and pass it as cache=. Please
+    note that different values of x need a different cache: empty the cache
+    before calling with a different x.
+
+    TODO(pts): Combine x and cache so it's not possible to call incorrectly.
+
     With is_left being true, emulates bisect_left, otherwise emulates
     bisect_right.
     """
@@ -173,14 +179,11 @@ class LineBisecter(object):
       tester = x.__le__  # x <= y.
     else:
       tester = x.__lt__  # x < y.
-    yold = None
     while lo < hi:
       mid = (lo + hi) >> 1
-      midf, y, _ = _get_using_cache(cache, mid, fofs_getter, line_getter)
-      if y is not yold:  # Equivalent test for C: `mid != midold'.
-        yold = y
-        gold = tester(y)  # x <= y if is_left else x < y. 
-      if gold:
+      midf, g, _ = _get_using_cache(
+          cache, mid, fofs_getter, line_getter, tester)
+      if g:
         hi = mid
       else:
         lo = mid + 1
@@ -190,8 +193,6 @@ class LineBisecter(object):
 
   def bisect_right(self, x, lo=0, hi=None, cache=None):
     """Return the largest offset where to insert line x.
-
-    To initialize a shared cache, set it to [], and pass it as cache=.
 
     Similar to bisect.bisect_right.
 
@@ -234,6 +235,8 @@ class LineBisecter(object):
     if cache is None:
       cache = []
     start = self.bisect_left(x, lo, hi, cache)
+    if x != y:
+      cache = []
     end = self.bisect_way(y, is_open, start, hi, cache)
     return start, end
 
