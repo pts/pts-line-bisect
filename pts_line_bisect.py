@@ -77,8 +77,6 @@ class LineBisecter(object):
     x = x.rstrip('\n')
     if lo < 0:
       raise ValueError('lo must be non-negative')
-    if not x:  # Shortcut.
-      return 0
     if hi is None or hi > self.size:
       hi = self.size
     while lo < hi:
@@ -203,6 +201,7 @@ def test():
   test_extra(1)
   test_extra(2)
   test_extra(42)
+  # TODO(pts): Add tests for '\n\n\n' in the beginning.
   print 'pts_line_bisect OK.'
 
 
