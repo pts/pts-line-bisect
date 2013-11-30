@@ -427,18 +427,23 @@ STATIC void usage_error(const char *argv0, const char *msg) {
 }
 
 STATIC void print_range(yfile *yf, off_t start, off_t end) {
-  int got;
+  int need, got;
   const char *buf;
   if (start >= end) return;
   yfseek_set(yf, start);
   end -= start;
-  while ((got = yfpeek(yf, end, &buf)) > 0) {
-    if ((int)fwrite(buf, 1, got, stdout) != got) {
-      fprintf(stderr, "error: short write\n");
+  fflush(stdout);
+  while ((need = yfpeek(yf, end, &buf)) > 0) {
+    if ((got = write(STDOUT_FILENO, buf, need)) != need) {
+      if (got < 0) {
+        fprintf(stderr, "error: write stdout: %s\n", strerror(errno));
+      } else {
+        fprintf(stderr, "error: short write\n");
+      }
       exit(2);
     }
-    yfseek_cur(yf, got);
-    end -= got;
+    yfseek_cur(yf, need);
+    end -= need;
   }
   /* \n is not printed at EOF if there isn't any. */
 }
