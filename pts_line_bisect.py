@@ -220,8 +220,7 @@ class LineBisecter(object):
     """
     return self.bisect_way(x, True, lo, hi, cache)
 
-  def bisect_interval(self, x, y=None, is_open=False, lo=0, hi=None,
-                      cache=None):
+  def bisect_interval(self, x, y=None, is_open=False, lo=0, hi=None):
     """Returns (start, end) offset pairs for lines between x and y.
 
     If is_open is true, then the interval consits of lines x <= line < y.
@@ -232,13 +231,14 @@ class LineBisecter(object):
       y = x
     else:
       y = y.strip('\n')
-    if cache is None:
-      cache = []
-    start = self.bisect_left(x, lo, hi, cache)
-    if x != y:
-      cache = []
-    end = self.bisect_way(y, is_open, start, hi, cache)
-    return start, end
+    if is_open and x == y:
+      start = self.bisect_left(x, lo, hi)
+      return start, start
+    else:
+      # Don't use a shared cache, x or is_left are different.
+      start = self.bisect_left(x, lo, hi)
+      end = self.bisect_way(y, is_open, start, hi)
+      return start, end
 
   def bisect_open(self, x, y=None, lo=0, hi=None):
     """Returns (start, end) offset pairs for x <= line < y."""
