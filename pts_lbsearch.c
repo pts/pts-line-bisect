@@ -309,9 +309,9 @@ off_t bisect_way(
   const off_t size = yfgetsize(yf);
   off_t mid, midf;
   const struct cache_entry *entry;
-  if (hi + 0ULL > size + 0ULL) hi = size;  /* Allso applies to hi == -1. */
+  if (hi + 0ULL > size + 0ULL) hi = size;  /* Also applies to hi == -1. */
   while (xsize > 0 && x[xsize - 1] == '\n') --xsize;
-  /* is_left=true corresponds to cm=CM_LE */
+  /* is_left=true, is_open=true correspond to cm=CM_LE */
   if (cm == CM_LE && xsize == 0) return 0;  /* Shortcut. */
   if (lo >= hi) return get_fofs_using_cache(yf, cache, lo);
   do {
@@ -325,6 +325,26 @@ off_t bisect_way(
     }
   } while (lo < hi);
   return mid == lo ? midf : get_fofs_using_cache(yf, cache, lo);
+}
+
+void bisect_interval(
+    yfile *yf, off_t lo, off_t hi, compare_mode_t cm,
+    const char *x, size_t xsize,
+    const char *y, size_t ysize,
+    off_t *start_out, off_t *end_out) {
+  off_t start;
+  struct cache cache;
+  while (xsize > 0 && x[xsize - 1] == '\n') --xsize;
+  while (ysize > 0 && x[ysize - 1] == '\n') --ysize;
+  cache_init(&cache);
+  *start_out = start = bisect_way(yf, &cache, lo, hi, x, xsize, CM_LE);
+  if (cm == CM_LE && xsize == ysize && 0 == memcmp(x, y, xsize)) {
+    *end_out = start;
+  } else {
+    /* Don't use a shared cache, because x or cm are different. */
+    cache_init(&cache);
+    *end_out = bisect_way(yf, &cache, start, hi, y, ysize, cm);
+  } 
 }
 
 /* --- main */
