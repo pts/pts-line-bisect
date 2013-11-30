@@ -216,12 +216,6 @@ STATIC off_t get_fofs(yfile *yf, off_t ofs) {
   }
 }
 
-enum CacheEntryResult {
-  CER_CMP_FALSE = 0,
-  CER_CMP_TRUE = 1,
-  CER_UNUSED = 2,
-};
-
 struct cache_entry {
   off_t ofs;
   off_t fofs;
