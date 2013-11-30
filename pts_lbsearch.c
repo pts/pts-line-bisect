@@ -86,6 +86,10 @@ void yfopen_devnull(yfile *yf) {
   yf->p[-1] = '\0';
 }
 
+off_t yfgetsize(yfile *yf) {
+  return yf->size;
+}
+
 off_t yftell(yfile *yf) {
   return yf->p - yf->rbuf + yf->ofs;
 }
@@ -93,7 +97,10 @@ off_t yftell(yfile *yf) {
 void yfseek_set(yfile *yf, off_t ofs) {
   char * const rbuf1 = yf->rbuf + YF_READ_BUF_SIZE + 1;
   assert(ofs >= 0);
-  if (yf->p != rbuf1 && ofs + 0U <= (yf->rend - yf->rbuf + yf->ofs) + 0U) {
+  /* TODO(pts): Convert off_t to its unsigned equivalent? + 0U doesn't seem to
+   * make a difference. + 0ULL seems to solve it.
+   */
+  if (yf->p != rbuf1 && ofs - yf->ofs + 0ULL <= yf->rend - yf->rbuf + 0ULL) {
     yf->p = ofs - yf->ofs + yf->rbuf;
   } else {  /* Forget about the cached read buffer. */
     yf->p = yf->rend = rbuf1;
@@ -102,7 +109,8 @@ void yfseek_set(yfile *yf, off_t ofs) {
 }
 
 /** Fast macro for yfgetc. */
-#define YFGETCHAR(yf) (*(yf)->p == '\0' ? yfgetc(yf) : *(yf)->p++)
+#define YFGETCHAR(yf) (*(yf)->p == '\0' ? yfgetc(yf) : \
+    (int)*(unsigned char*)(yf)->p++)
 
 /** Returns -1 on EOF, or 0..255. */
 int yfgetc(yfile *yf) {
@@ -110,7 +118,7 @@ int yfgetc(yfile *yf) {
     off_t a = yf->p - yf->rbuf + yf->ofs, b;  /* a = yftell(yf); */
     int got, need;
     fprintf(stderr, "!! A=%d OFS=%d SIZE=%d\n", (int)a, (int)yf->ofs, (int)yf->size);
-    if (a + 0U >= yf->size + 0U) return -1;  /* EOF. */
+    if (a + 0ULL >= yf->size + 0ULL) return -1;  /* EOF. */
     /* YF_READ_BUF_SIZE must be a power of 2. */
     b = a & -YF_READ_BUF_SIZE;
     yf->p = a - b + yf->rbuf;
@@ -126,7 +134,7 @@ int yfgetc(yfile *yf) {
       }
       yf->ofs = b;
     }
-    need = b + YF_READ_BUF_SIZE + 0U > yf->size + 0U ?
+    need = b + YF_READ_BUF_SIZE + 0ULL > yf->size + 0ULL ?
         yf->size - b : YF_READ_BUF_SIZE; 
     got = yf->fd < 0 ? 0 : read(yf->fd, yf->rbuf, need);
     if (got < 0) {
@@ -136,24 +144,29 @@ int yfgetc(yfile *yf) {
     *(yf->rend = yf->rbuf + got) = '\0';
     fprintf(stderr, "!! B=%d GOT=%d SIZE=%d\n", (int)b, got, (int)yf->size);
     b += got;
-    if (got < need && b + 0U < yf->size + 0U) {
+    if (got < need && b + 0ULL < yf->size + 0ULL) {
       yf->size = b;
     }
-    if (b + 0U <= a + 0U) {  /* yf->p is past the buffer. */
+    fprintf(stderr, "!! B=%d GOT=%d SIZX=%d A=%d P=%d C=%d\n", (int)b, got, (int)yf->size, (int)a, (int)(yf->p - yf->rbuf), *yf->p);
+    if (b + 0ULL <= a + 0ULL) {  /* yf->p is past the buffer. */
       yf->p = yf->rend;
       return -1;  /* EOF. */
     }
   }
-  return *yf->p++;
+  return *(unsigned char*)yf->p++;
 }
 
 int main(int argc, char **argv) {
   yfile yff, *yf = &yff;
   int c;
+  off_t ofs;
   (void)argc;
   (void)argv;
   yfopen(yf, argv[1], (off_t) -1); 
-  while ((c = YFGETCHAR(yf)) >= 0) {
+  for (ofs = yfgetsize(yf); ofs != 0; --ofs) {
+    yfseek_set(yf, ofs - 1);
+    c = YFGETCHAR(yf);
+    assert(c >= 0);
     putchar(c);
   }
   yfclose(yf);
