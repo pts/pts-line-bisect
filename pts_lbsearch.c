@@ -186,6 +186,22 @@ ybool compare_line(yfile *yf, off_t fofs,
   }  
 }
 
+off_t get_fofs(yfile *yf, off_t ofs) {
+  int c;
+  off_t size;
+  assert(ofs >= 0);
+  if (ofs == 0) return 0;
+  size = yfgetsize(yf);
+  if (ofs > size) return size;
+  --ofs;
+  yfseek_set(yf, ofs);
+  for (;;) {
+    if ((c = YFGETCHAR(yf)) < 0) return ofs;
+    ++ofs;
+    if (c == '\n') return ofs;
+  }
+}
+
 /* --- main */
 
 int main(int argc, char **argv) {
