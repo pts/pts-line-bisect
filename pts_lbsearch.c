@@ -6,6 +6,14 @@
  *
  * License: GNU GPL v2 or newer, at your choice.
  *
+ * Nice properties of this implementation:
+ *
+ * * no dynamic memory allocation (except possibly for stdio.h)
+ * * no unnecessary lseek(2) or read(2) system calls
+ * * no unnecessary comparisons for long strings
+ * * very small memory usage: only a dozen of offsets of flags in addition to
+ *   a single file read buffer (of 8K by default)
+ *
  * TODO(pts): Test largefile support.
  * TODO(pts): Document LC_ALL=C sort etc.
  */
@@ -30,7 +38,12 @@
 
 typedef char ybool;
 
-/* --- Buffered, seekable file reader. */
+/* --- Buffered, seekable file reader.
+ *
+ * We implement our own optimized buffered file reader, which makes sure that
+ * there are no unnecessary lseek(2) or read(2) system calls, not even when
+ * a combination of read and seek operations are issued.
+ */
 
 #ifndef YF_READ_BUF_SIZE
 #define YF_READ_BUF_SIZE 8192
@@ -38,7 +51,7 @@ typedef char ybool;
 
 struct AssertYfReadBufSizeIsPowerOf2 {
   int  AssertYfReadBufSizeIsPowerOf2 :
-      (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 30;
+      (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 0;
 };
 
 typedef struct yfile {
