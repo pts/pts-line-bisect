@@ -350,6 +350,7 @@ STATIC off_t get_fofs_using_cache(
   int a = cache->active;
   off_t fofs;
   assert(ofs >= 0);
+  if (ofs == 0) return 0;
   if (CACHE_HAS_0(a) &&
       cache->e[0].ofs <= ofs && ofs <= cache->e[0].fofs) {
     if (a == 1) cache->active = a = 0;
@@ -388,8 +389,10 @@ STATIC off_t bisect_way(
   off_t mid, midf;
   const struct cache_entry *entry;
   if (hi + 0ULL > size + 0ULL) hi = size;  /* Also applies to hi == -1. */
-  /* is_left=true, is_open=true correspond to cm=CM_LE */
-  if (cm == CM_LE && xsize == 0) return 0;  /* Shortcut. */
+  if (xsize == 0) {  /* Shortcuts. */
+    if (cm == CM_LE) hi = lo;  /* Faster for lo == 0. Returns right below. */
+    if (cm == CM_LP && hi == size) return hi;
+  }
   if (lo >= hi) return get_fofs_using_cache(yf, cache, lo);
   do {
     mid = (lo + hi) >> 1;
