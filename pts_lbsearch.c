@@ -1,5 +1,6 @@
 #define DUMMY \
-  set -ex; ${CC:-gcc} -W -Wall -s -O2 -o pts_lbsearch "$0"; : OK; exit
+  set -ex; ${CC:-gcc} -W -Wall -s -O2 -ansi -Wmissing-declarations \
+      -o pts_lbsearch "$0"; : OK; exit
 /*
  * pts_lbsearch.c: Fast binary search in a line-sorted file.
  * by pts@fazekas.hu at Sat Nov 30 02:42:03 CET 2013
@@ -16,6 +17,7 @@
  *
  * TODO(pts): Test largefile support.
  * TODO(pts): Document LC_ALL=C sort etc.
+ * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  */
 
 /* #define _LARGEFILE64_SOURCE  -- this would be off64_t, lseek64 etc. */
@@ -211,10 +213,10 @@ STATIC int yfgetc(yfile *yf) {
  * Returns 0 on EOF. The caller can skip through it by calling
  * yfseek_cur(yf, result) later.
  */
-int yfpeek(yfile *yf, off_t len, const char **buf_out) {
+STATIC int yfpeek(yfile *yf, off_t len, const char **buf_out) {
   int available;
   if (len <= 0) return 0;
-  available = yf->rend - yf->p;  // !! fit int
+  available = yf->rend - yf->p;  /* This fits to an int. */
   if (available <= 0 && yfgetc(yf) >= 0) {
     --yf->p;  /* YFUNGET(yf). */
     available = yf->rend - yf->p;
