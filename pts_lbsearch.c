@@ -117,7 +117,6 @@ int yfgetc(yfile *yf) {
   if (yf->p == yf->rend) {
     off_t a = yf->p - yf->rbuf + yf->ofs, b;  /* a = yftell(yf); */
     int got, need;
-    fprintf(stderr, "!! A=%d OFS=%d SIZE=%d\n", (int)a, (int)yf->ofs, (int)yf->size);
     if (a + 0ULL >= yf->size + 0ULL) return -1;  /* EOF. */
     /* YF_READ_BUF_SIZE must be a power of 2. */
     b = a & -YF_READ_BUF_SIZE;
@@ -142,12 +141,10 @@ int yfgetc(yfile *yf) {
       exit(2);
     }
     *(yf->rend = yf->rbuf + got) = '\0';
-    fprintf(stderr, "!! B=%d GOT=%d SIZE=%d\n", (int)b, got, (int)yf->size);
     b += got;
     if (got < need && b + 0ULL < yf->size + 0ULL) {
       yf->size = b;
     }
-    fprintf(stderr, "!! B=%d GOT=%d SIZX=%d A=%d P=%d C=%d\n", (int)b, got, (int)yf->size, (int)a, (int)(yf->p - yf->rbuf), *yf->p);
     if (b + 0ULL <= a + 0ULL) {  /* yf->p is past the buffer. */
       yf->p = yf->rend;
       return -1;  /* EOF. */
