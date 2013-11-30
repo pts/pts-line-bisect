@@ -1,0 +1,161 @@
+#define DUMMY \
+  set -ex; ${CC:-gcc} -W -Wall -s -O2 -o pts_lbsearch "$0"; : OK; exit
+/*
+ * pts_lbsearch.c: Fast binary search in a line-sorted file.
+ * by pts@fazekas.hu at Sat Nov 30 02:42:03 CET 2013
+ *
+ * TODO(pts): Test largefile support.
+ * TODO(pts): Document LC_ALL=C sort etc.
+ */
+
+/* #define _LARGEFILE64_SOURCE  -- this would be off64_t, lseek64 etc. */
+#define _FILE_OFFSET_BITS 64
+
+#define YF_READ_BUF_SIZE 8192  /* Must be a power of 2. */
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+typedef char ybool;  /* TODO(pts): Is this needed? */ 
+
+/* --- Buffered, seekable file reader. */
+
+#ifndef YF_READ_BUF_SIZE
+#define YF_READ_BUF_SIZE 8192
+#endif
+
+struct AssertYfReadBufSizeIsPowerOf2 {
+  int _ : (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 0;
+};
+
+typedef struct yfile {
+  char *p;
+  /* Invariant: *yf->rend == '\0'. */
+  char *rend;
+  int fd;
+  off_t ofs;  /* File offset at the beginning of rbuf. */
+  off_t size;
+  char rbuf[YF_READ_BUF_SIZE + 2];
+} yfile;
+
+/** Constructor. Opens and initializes yf.
+ * If size != (off_t)-1, then it will be imposed as a limit.
+ */
+void yfopen(yfile *yf, const char *pathname, off_t size) {
+  int fd = open(pathname, O_RDONLY);
+  if (fd < 0) {
+    fprintf(stderr, "error: open %s: %s\n", pathname, strerror(errno));
+    exit(2);
+  }
+  if (size == -1) {
+    size = lseek(fd, 0, SEEK_END);
+    if (size + 1U == 0U) {
+      fprintf(stderr, "error: lseek end: %s\n", strerror(errno));
+      exit(2);
+    }
+  }
+  yf->p = yf->rend = yf->rbuf + YF_READ_BUF_SIZE + 1;
+  *yf->p = '\0';
+  yf->p[-1] = '\0';
+  yf->fd = fd;
+  yf->size = size;
+  yf->ofs = -(YF_READ_BUF_SIZE + 1);  /* So yftell(f) would return 0. */
+}
+
+void yfclose(yfile *yf) {
+  if (yf->fd >= 0) {
+    close(yf->fd);
+    yf->fd = -1;
+  }
+  yf->p = yf->rend = yf->rbuf + YF_READ_BUF_SIZE + 1;
+  yf->size = 0;
+  yf->ofs = -(YF_READ_BUF_SIZE + 1);  /* So yftell(f) would return 0. */
+}
+
+/* Constructor. Opens a file which always returns EOF. */ 
+void yfopen_devnull(yfile *yf) {
+  yf->fd = -1;
+  yfclose(yf);
+  *yf->p = '\0';
+  yf->p[-1] = '\0';
+}
+
+off_t yftell(yfile *yf) {
+  return yf->p - yf->rbuf + yf->ofs;
+}
+
+void yfseek_set(yfile *yf, off_t ofs) {
+  char * const rbuf1 = yf->rbuf + YF_READ_BUF_SIZE + 1;
+  assert(ofs >= 0);
+  if (yf->p != rbuf1 && ofs + 0U <= (yf->rend - yf->rbuf + yf->ofs) + 0U) {
+    yf->p = ofs - yf->ofs + yf->rbuf;
+  } else {  /* Forget about the cached read buffer. */
+    yf->p = yf->rend = rbuf1;
+    yf->ofs = ofs - (YF_READ_BUF_SIZE + 1);
+  }
+}
+
+/** Fast macro for yfgetc. */
+#define YFGETCHAR(yf) (*(yf)->p == '\0' ? yfgetc(yf) : *(yf)->p++)
+
+/** Returns -1 on EOF, or 0..255. */
+int yfgetc(yfile *yf) {
+  if (yf->p == yf->rend) {
+    off_t a = yf->p - yf->rbuf + yf->ofs, b;  /* a = yftell(yf); */
+    int got, need;
+    fprintf(stderr, "!! A=%d OFS=%d SIZE=%d\n", (int)a, (int)yf->ofs, (int)yf->size);
+    if (a + 0U >= yf->size + 0U) return -1;  /* EOF. */
+    /* YF_READ_BUF_SIZE must be a power of 2. */
+    b = a & -YF_READ_BUF_SIZE;
+    yf->p = a - b + yf->rbuf;
+    if (yf->ofs != b) {
+      a = lseek(yf->fd, b, SEEK_SET);
+      if (a + 1U == 0U) {
+        fprintf(stderr, "error: lseek set: %s\n", strerror(errno));
+        exit(2);
+      }
+      if (a != b) {  /* Should not happen. */
+        fprintf(stderr, "error: lseek set offset\n");
+        exit(2);
+      }
+      yf->ofs = b;
+    }
+    need = b + YF_READ_BUF_SIZE + 0U > yf->size + 0U ?
+        yf->size - b : YF_READ_BUF_SIZE; 
+    got = yf->fd < 0 ? 0 : read(yf->fd, yf->rbuf, need);
+    if (got < 0) {
+      fprintf(stderr, "error: read: %s\n", strerror(errno));
+      exit(2);
+    }
+    *(yf->rend = yf->rbuf + got) = '\0';
+    fprintf(stderr, "!! B=%d GOT=%d SIZE=%d\n", (int)b, got, (int)yf->size);
+    b += got;
+    if (got < need && b + 0U < yf->size + 0U) {
+      yf->size = b;
+    }
+    if (b + 0U <= a + 0U) {  /* yf->p is past the buffer. */
+      yf->p = yf->rend;
+      return -1;  /* EOF. */
+    }
+  }
+  return *yf->p++;
+}
+
+int main(int argc, char **argv) {
+  yfile yff, *yf = &yff;
+  int c;
+  (void)argc;
+  (void)argv;
+  yfopen(yf, argv[1], (off_t) -1); 
+  while ((c = YFGETCHAR(yf)) >= 0) {
+    putchar(c);
+  }
+  yfclose(yf);
+  return 0;
+}
