@@ -1,8 +1,8 @@
 README for pts_lbsearch
 ^^^^^^^^^^^^^^^^^^^^^^^
 pts_lbsearch is a fast binary search in a line-sorted text file. It finds
-and prints lines within a given range or within a given prefix. It works
-even if line have variable length. pts_lbsearch is written in C, it is
+and prints lines within a given range or with a given prefix. It works
+even if lines have variable length. pts_lbsearch is written in C, it is
 optimized for speed and it is using buffering and cache to avoid unnecessary
 read(2)s and lseek(2)s. It also has a very small, constant memory footprint:
 barely larger than the read buffer (8KB by default).
