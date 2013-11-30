@@ -78,13 +78,13 @@ def _get_fofs_using_cache(ab, ofs, fofs_getter):
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
+      # TODO(pts): Add test for this.
     elif len(ab) > 1 and ab[-1][0] == fofs:
       _hitc += 1
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
-    else:
-      # We don't update the cache, because we don't call line_getter(fofs).
-      return fofs
+    # We don't update the cache, because we don't call line_getter(fofs).
+    return fofs
 
 
 class LineBisecter(object):
