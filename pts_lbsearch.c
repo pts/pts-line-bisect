@@ -137,6 +137,28 @@ STATIC off_t yftell(yfile *yf) {
 }
 #endif
 
+STATIC off_t yflimit(yfile *yf, off_t size) {
+  off_t ofs;
+  if (size + 0ULL < yf->size + 0ULL) {
+    yf->size = size;
+    /* Fix up yf->p and yf->rend if they are too large. */
+    if (yf->rend - yf->rbuf + yf->ofs + 0ULL > yf->size + 0ULL &&
+        yf->p != yf->rbuf + YF_READ_BUF_SIZE + 1) {
+      if (yf->p - yf->rbuf + yf->ofs + 0ULL > yf->size + 0ULL) {
+        /* TODO(pts): Do it without dropping all the caches. */
+        ofs = yf->p - yf->rbuf + yf->ofs;
+        yf->p = yf->rend = yf->rbuf + YF_READ_BUF_SIZE + 1;
+        yf->ofs = ofs - (YF_READ_BUF_SIZE + 1);
+      } else {
+        yf->rend = yf->size - yf->ofs + yf->rbuf;  /* Make it smaller. */
+        *yf->rend = '\0';
+      }
+    }
+  }
+  return yf->size;
+}
+
+/* It's possible to seek beyond the file size. */
 STATIC void yfseek_set(yfile *yf, off_t ofs) {
   char * const rbuf1 = yf->rbuf + YF_READ_BUF_SIZE + 1;
   assert(ofs >= 0);
@@ -440,7 +462,9 @@ STATIC void usage(const char *argv0) {
           "p: do prefix search\n"
           "c: print file contents (default)\n"
           "o: print file offsets\n"
-          "q: don't print anything, just detect if there is a match\n", argv0);
+          "q: don't print anything, just detect if there is a match\n"
+          "i: ignore incomplete last line (may be appended to right now)\n",
+          argv0);
 }
 
 STATIC void usage_error(const char *argv0, const char *msg) {
@@ -478,6 +502,12 @@ typedef enum printing_t {
   PR_UNSET,
 } printing_t;
 
+typedef enum incomplete_t {
+  IN_IGNORE,  /* Ignore incomplete last line of file. */
+  IN_USE,  /* Use incomplete last line of file as if it had a trailin '\n'. */
+  IN_UNSET,  /* Not set yet. Most functions do not support it. */
+} incomplete_t;
+
 int main(int argc, char **argv) {
   yfile yff, *yf = &yff;
   const char *x;
@@ -490,6 +520,7 @@ int main(int argc, char **argv) {
   size_t xsize, ysize;
   off_t start, end;
   printing_t printing = PR_UNSET;
+  incomplete_t incomplete = IN_UNSET;
 
   /* Parse the command-line. */
   if (argc != 4 && argc != 5) usage_error(argv[0], "incorrect argument count");
@@ -527,14 +558,31 @@ int main(int argc, char **argv) {
     } else if (flag == 'q') {
       if (printing != PR_UNSET) usage_error(argv[0], "multiple printing flags");
       printing = PR_DETECT;
+    } else if (flag == 'i') {
+      if (incomplete != IN_UNSET) {
+        usage_error(argv[0], "multiple incomplete flags");
+      }
+      incomplete = IN_IGNORE;
     }
   }
   if (cm == CM_UNSET) usage_error(argv[0], "missing boundary flag");
   if (printing == PR_UNSET) printing = PR_CONTENTS;
+  if (incomplete == IN_UNSET) incomplete = IN_USE;
   if (!y && printing != PR_OFFSETS && cm == CM_LE) {
     usage_error(argv[0], "single-key contents is always empty");
   }
+
   yfopen(yf, filename, (off_t)-1);
+  if (incomplete == IN_IGNORE) {
+    off_t size = yfgetsize(yf);
+    int c;
+    while (size != 0) {
+      yfseek_set(yf, size - 1);
+      if ((c = YFGETCHAR(yf)) < 0 || c == '\n') break;
+      --size;
+    }
+    yflimit(yf, size);
+  }
   if (!y && cm == CM_LE && printing == PR_OFFSETS) {
     struct cache cache;
     cache_init(&cache);
