@@ -519,12 +519,27 @@ int main(int argc, char **argv) {
     start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cm);  /* CM_LE. */
     yfclose(yf);
     printf("%lld\n", (long long)start);
+  } else if (printing == PR_DETECT &&
+             (!y || (xsize == ysize && 0 == memcmp(x, y, xsize)))) {
+    /* This branch is just a shortcut, it doesn't change the results. */
+    struct cache cache;
+    const struct cache_entry *entry;
+    /* Shortcut just to detect if x is present. */
+    if (cm == CM_LE) exit(3);  /* start:end range would always be empty. */
+    cache_init(&cache);
+    start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, CM_LE);
+    cache_init(&cache);  /* Can't reuse cache, cm has changed. */
+    /* We don't benefit any speed from the cache here (because it's empty),
+     * but we reuse the existing code to compare a single line from yf.
+     */
+    entry = get_using_cache(yf, &cache, start, x, xsize, cm);
+    yfclose(yf);
+    if (entry->cmp_result) exit(3);  /* exit(3) iff x not found in yf. */
   } else {
     if (!y) {
       y = x;
       ysize = xsize;
     }
-    /* TODO(pts): Speed the 2nd bisect in -tq: just do a forward scan. */
     bisect_interval(yf, 0, (off_t)-1, cm, x, xsize, y, ysize, &start, &end);
     if (printing == PR_CONTENTS) {
       print_range(yf, start, end);
