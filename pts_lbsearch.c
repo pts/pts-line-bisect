@@ -112,6 +112,9 @@ void yfseek_set(yfile *yf, off_t ofs) {
 #define YFGETCHAR(yf) (*(yf)->p == '\0' ? yfgetc(yf) : \
     (int)*(unsigned char*)(yf)->p++)
 
+/** Can only be called after a getchar returning non-EOF. */
+#define YFUNGET(yf) ((void)--(yf)->p)
+
 /** Returns -1 on EOF, or 0..255. */
 int yfgetc(yfile *yf) {
   if (yf->p == yf->rend) {
@@ -162,8 +165,13 @@ typedef enum compare_mode_t {
 } compare_mode_t;
 
 /* Compare x[:xsize] with a line read from yf. */
-ybool compare_line(yfile *yf, const char *x, size_t xsize, compare_mode_t cm) {
+ybool compare_line(yfile *yf, off_t fofs,
+                   const char *x, size_t xsize, compare_mode_t cm) {
   int b, c;
+  yfseek_set(yf, fofs);
+  c = YFGETCHAR(yf);
+  if (c < 0) return 1;  /* Special casing of EOF at BOL. */
+  YFUNGET(yf);
   for (;;) {
     c = YFGETCHAR(yf);
     if (c < 0 || c == '\n') {
