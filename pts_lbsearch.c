@@ -136,6 +136,14 @@ STATIC void yfseek_set(yfile *yf, off_t ofs) {
   }
 }
 
+STATIC void yfseek_cur(yfile *yf, off_t ofs) {
+  if (ofs + 0ULL <= yf->rend - yf->p + 0ULL) {  /* Shortcut for ofs >= 0. */
+    yf->p += ofs;
+  } else {
+    yfseek_set(yf, yf->p - yf->rbuf + yf->ofs + ofs);
+  }
+}
+
 /** Fast macro for yfgetc. */
 #define YFGETCHAR(yf) (*(yf)->p == '\0' ? yfgetc(yf) : \
     (int)*(unsigned char*)(yf)->p++)
@@ -186,6 +194,24 @@ STATIC int yfgetc(yfile *yf) {
     }
   }
   return *(unsigned char*)yf->p++;
+}
+
+/**
+ * If the read buffer is empty, read from yf to the read buffer. Then return
+ * a slice of the read buffer (buf_out[:result]) without skipping over it.
+ * Returns 0 on EOF. The caller can skip through it by calling
+ * yfseek_cur(yf, result) later.
+ */
+int yfpeek(yfile *yf, off_t len, const char **buf_out) {
+  int available;
+  if (len <= 0) return 0;
+  available = yf->rend - yf->p;  // !! fit int
+  if (available <= 0 && yfgetc(yf) >= 0) {
+    --yf->p;  /* YFUNGET(yf). */
+    available = yf->rend - yf->p;
+  }
+  *buf_out = yf->p;
+  return len + 0ULL > available + 0ULL ? available : (int)len;
 }
 
 /* --- Bisection (binary search) */
@@ -401,14 +427,18 @@ STATIC void usage_error(const char *argv0, const char *msg) {
 }
 
 STATIC void print_range(yfile *yf, off_t start, off_t end) {
-  /* TODO(pts): Faster, use bulk read(2). */
-  int c;
+  int got;
+  const char *buf;
   if (start >= end) return;
   yfseek_set(yf, start);
   end -= start;
-  while (end != 0 && (c = YFGETCHAR(yf)) >= 0) {
-    putchar(c);
-    --end;
+  while ((got = yfpeek(yf, end, &buf)) > 0) {
+    if ((int)fwrite(buf, 1, got, stdout) != got) {
+      fprintf(stderr, "error: short write\n");
+      exit(2);
+    }
+    yfseek_cur(yf, got);
+    end -= got;
   }
   /* \n is not printed at EOF if there isn't any. */
 }
