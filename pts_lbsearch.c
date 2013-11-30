@@ -224,9 +224,10 @@ typedef enum compare_mode_t {
 } compare_mode_t;
 
 /* Compare x[:xsize] with a line read from yf. */
-STATIC ybool compare_line(yfile *yf,
+STATIC ybool compare_line(yfile *yf, off_t fofs,
                           const char *x, size_t xsize, compare_mode_t cm) {
   int b, c;
+  yfseek_set(yf, fofs);
   c = YFGETCHAR(yf);
   if (c < 0) return 1;  /* Special casing of EOF at BOL. */
   YFUNGET(yf);
@@ -322,8 +323,7 @@ STATIC const struct cache_entry *get_using_cache(
       /* Fill newly activated cache entry. */
       entry->fofs = fofs;
       entry->ofs = ofs;
-      yfseek_set(yf, fofs);
-      entry->cmp_result = compare_line(yf, x, xsize, cm);
+      entry->cmp_result = compare_line(yf, fofs, x, xsize, cm);
       return entry;  /* Shortcut, the return below would do the same. */
     }
   }
