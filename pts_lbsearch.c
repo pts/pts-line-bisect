@@ -4,6 +4,8 @@
  * pts_lbsearch.c: Fast binary search in a line-sorted file.
  * by pts@fazekas.hu at Sat Nov 30 02:42:03 CET 2013
  *
+ * License: GNU GPL v2 or newer, at your choice.
+ *
  * TODO(pts): Test largefile support.
  * TODO(pts): Document LC_ALL=C sort etc.
  */
@@ -176,6 +178,7 @@ typedef enum compare_mode_t {
   CM_LE,  /* True iff x <= y (where y is read from the file. */
   CM_LT,  /* True iff x < y. */
   CM_LP,  /* x* < y, where x* is x + a fake byte 256 and the end. */
+  CM_UNSET,  /* Not set yet. Most functions do not support it. */
 } compare_mode_t;
 
 /* Compare x[:xsize] with a line read from yf. */
@@ -224,9 +227,9 @@ struct cache_entry {
 
 struct cache {
   struct cache_entry e[2];
-  /* 0: 01 used, 0 is active;
-   * 1: 01 used, 1 is active;
-   * 2: 0 used, 0 is active;
+  /* 0: 0,1 are used, 0 is active;
+   * 1: 0,1 are used, 1 is active;
+   * 2: 0 is used, 0 is active;
    * 3: none used.
    */
   int active;
@@ -344,6 +347,7 @@ STATIC void bisect_interval(
     off_t *start_out, off_t *end_out) {
   off_t start;
   struct cache cache;
+  /* We do these only for the memcmp below. */
   while (xsize > 0 && x[xsize - 1] == '\n') --xsize;
   while (ysize > 0 && y[ysize - 1] == '\n') --ysize;
   cache_init(&cache);
@@ -360,48 +364,122 @@ STATIC void bisect_interval(
 /* --- main */
 
 STATIC void usage(const char *argv0) {
-  fprintf(stderr, "Usage: %s <input-file> <key-x> <key-y> {e|t|p}\n", argv0);
+  fprintf(stderr,
+          "Binary search (bisection) in a sorted text file\n"
+          "Usage: %s -<flags> <sorted-text-file> <key-x> [<key-y>]\n"
+          "<key-x> is the first key to search for\n"
+          "<key-y> is the last key to search for; default is <key-x>\n"
+          "Flags:\n"
+          "e: do bisect_left, open interval (but beginning is always closed)\n"
+          "t: do bisect_right, closed interval\n"
+          "p: do prefix search\n"
+          "c: print file contents (default)\n"
+          "o: print file offsets\n"
+          "q: don't print anything, just detect if there is a match\n", argv0);
 }
+
+STATIC void usage_error(const char *argv0, const char *msg) {
+  usage(argv0);
+  fprintf(stderr, "usage error: %s\n", msg);
+  exit(1);
+}
+
+STATIC void print_range(yfile *yf, off_t start, off_t end) {
+  /* TODO(pts): Faster, use bulk read(2). */
+  int c;
+  if (start >= end) return;
+  yfseek_set(yf, start);
+  end -= start;
+  while (end != 0 && (c = YFGETCHAR(yf)) >= 0) {
+    putchar(c);
+    --end;
+  }
+  /* \n is not printed at EOF if there isn't any. */
+}
+
+typedef enum printing_t {
+  PR_OFFSETS,
+  PR_CONTENTS,
+  PR_DETECT,
+  PR_UNSET,
+} printing_t;
 
 int main(int argc, char **argv) {
   yfile yff, *yf = &yff;
   const char *x;
   const char *y;
   const char *filename;
-  const char *mode;
-  char modec;
-  compare_mode_t cm;
+  const char *flags;
+  const char *p;
+  char flag;
+  compare_mode_t cm = CM_UNSET;
   size_t xsize, ysize;
   off_t start, end;
+  printing_t printing = PR_UNSET;
 
   /* Parse the command-line. */
-  if (argc != 5) {
-    usage(argv[0]);
-    exit(1);
-  }
-  filename = argv[1];
-  x = argv[2];
+  /* TODO(pts): Add more useful usage error message. */
+  if (argc != 4 && argc != 5) usage_error(argv[0], "incorrect argument count");
+  if (argv[1][0] != '-') usage_error(argv[0], "missing flags");
+  flags = argv[1] + 1;
+  filename = argv[2];
+  x = argv[3];
   xsize = strlen(x);
-  y = argv[3];
-  ysize = strlen(y);
-  mode = argv[4];
-  modec = mode[0] != '\0' && mode[1] != '\0' ? '\0' : mode[0];
-  if (modec == 'e') {
-    cm = CM_LE;
-  } else if (modec == 't') {
-    cm = CM_LT;
-  } else if (modec == 'p') {
-    cm = CM_LP;
+  if (argc == 4) {
+    y = NULL;
+    ysize = 0;
   } else {
-    usage(argv[0]);
-    exit(0);
+    y = argv[4];
+    ysize = strlen(y);
   }
-  /* TODO(pts): Add flag for a single binary search only. */
-
   /* TODO(pts): Make the initial lo and hi offsets configurable. */
+  for (p = flags; (flag = *p); ++p) {
+    if (flag == 'e') {
+      if (cm != CM_UNSET) usage_error(argv[0], "multiple boundary flags");
+      cm = CM_LE;
+    } else if (flag == 't') {
+      if (cm != CM_UNSET) usage_error(argv[0], "multiple boundary flags");
+      cm = CM_LT;
+    } else if (flag == 'p') {
+      if (cm != CM_UNSET) usage_error(argv[0], "multiple boundary flags");
+      cm = CM_LP;
+    } else if (flag == 'o') {
+      if (printing != PR_UNSET) usage_error(argv[0], "multiple printing flags");
+      printing = PR_OFFSETS;
+    } else if (flag == 'c') {
+      if (printing != PR_UNSET) usage_error(argv[0], "multiple printing flags");
+      printing = PR_CONTENTS;
+    } else if (flag == 'q') {
+      if (printing != PR_UNSET) usage_error(argv[0], "multiple printing flags");
+      printing = PR_DETECT;
+    }
+  }
+  if (cm == CM_UNSET) usage_error(argv[0], "missing boundary flag");
+  if (printing == PR_UNSET) printing = PR_CONTENTS;
+  if (!y && printing != PR_OFFSETS && cm == CM_LE) {
+    usage_error(argv[0], "single-key contents is always empty");
+  }
   yfopen(yf, filename, (off_t)-1);
-  bisect_interval(yf, 0, (off_t)-1, cm, x, xsize, y, ysize, &start, &end);
-  yfclose(yf);
-  printf("%lld %lld\n", (long long)start, (long long)end);
+  if (y || cm != CM_LE || printing != PR_OFFSETS) {
+    if (!y) {
+      y = x;
+      ysize = xsize;
+    }
+    /* TODO(pts): Speed the 2nd bisect in -tq: just do a forward scan. */
+    bisect_interval(yf, 0, (off_t)-1, cm, x, xsize, y, ysize, &start, &end);
+    if (printing == PR_CONTENTS) {
+      print_range(yf, start, end);
+    } else if (printing == PR_OFFSETS) {
+      printf("%lld %lld\n", (long long)start, (long long)end);
+    }
+    yfclose(yf);
+    if (start >= end) exit(3);  /* No match found. */
+  } else {
+    struct cache cache;
+    cache_init(&cache);
+    start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cm);  /* CM_LE. */
+    yfclose(yf);
+    printf("%lld\n", (long long)start);
+  }
   return 0;
 }
