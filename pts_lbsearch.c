@@ -24,7 +24,7 @@
 
 #define STATIC static
 
-typedef char ybool;  /* TODO(pts): Is this needed? */ 
+typedef char ybool;
 
 /* --- Buffered, seekable file reader. */
 
@@ -58,7 +58,11 @@ STATIC void yfopen(yfile *yf, const char *pathname, off_t size) {
   if (size == -1) {
     size = lseek(fd, 0, SEEK_END);
     if (size + 1ULL == 0ULL) {
-      fprintf(stderr, "error: lseek end: %s\n", strerror(errno));
+      if (errno == ESPIPE) {
+        fprintf(stderr, "error: input not seekable, cannot binary search\n");
+      } else {
+        fprintf(stderr, "error: lseek end: %s\n", strerror(errno));
+      }
       exit(2);
     }
   }
@@ -81,7 +85,7 @@ STATIC void yfclose(yfile *yf) {
 }
 
 #if 0
-/* Constructor. Opens a file which always returns EOF. */ 
+/* Constructor. Opens a file which always returns EOF. */
 STATIC void yfopen_devnull(yfile *yf) {
   yf->fd = -1;
   yfclose(yf);
@@ -127,13 +131,17 @@ STATIC int yfgetc(yfile *yf) {
     off_t a = yf->p - yf->rbuf + yf->ofs, b;  /* a = yftell(yf); */
     int got, need;
     if (a + 0ULL >= yf->size + 0ULL) return -1;  /* EOF. */
-    /* YF_READ_BUF_SIZE must be a power of 2. */
+    /* YF_READ_BUF_SIZE must be a power of 2 for this below. */
     b = a & -YF_READ_BUF_SIZE;
     yf->p = a - b + yf->rbuf;
     if (yf->ofs != b) {
       a = lseek(yf->fd, b, SEEK_SET);
       if (a + 1ULL == 0ULL) {
-        fprintf(stderr, "error: lseek set: %s\n", strerror(errno));
+        if (errno == ESPIPE) {
+          fprintf(stderr, "error: input not seekable, cannot binary search.\n");
+        } else {
+          fprintf(stderr, "error: lseek set: %s\n", strerror(errno));
+        }
         exit(2);
       }
       if (a != b) {  /* Should not happen. */
@@ -143,7 +151,7 @@ STATIC int yfgetc(yfile *yf) {
       yf->ofs = b;
     }
     need = b + YF_READ_BUF_SIZE + 0ULL > yf->size + 0ULL ?
-        yf->size - b : YF_READ_BUF_SIZE; 
+        yf->size - b : YF_READ_BUF_SIZE;
     got = yf->fd < 0 ? 0 : read(yf->fd, yf->rbuf, need);
     if (got < 0) {
       fprintf(stderr, "error: read: %s\n", strerror(errno));
@@ -162,7 +170,7 @@ STATIC int yfgetc(yfile *yf) {
   return *(unsigned char*)yf->p++;
 }
 
-/* --- Compare */
+/* --- Bisection (binary search) */
 
 typedef enum compare_mode_t {
   CM_LE,  /* True iff x <= y (where y is read from the file. */
@@ -189,7 +197,7 @@ STATIC ybool compare_line(yfile *yf, off_t fofs,
     }
     ++x;
     --xsize;
-  }  
+  }
 }
 
 STATIC off_t get_fofs(yfile *yf, off_t ofs) {
@@ -246,6 +254,8 @@ STATIC const struct cache_entry *get_using_cache(
   struct cache_entry *entry;
   off_t fofs;
   assert(ofs >= 0);
+  /* TODO(pts): Add tests for efficient and correct cache usage. */
+  /* TODO(pts): Add tests for code coverage. */
   if (CACHE_HAS_0(a) &&
       cache->e[0].ofs <= ofs && ofs <= cache->e[0].fofs) {
     if (a == 1) cache->active = a = 0;
@@ -350,24 +360,54 @@ STATIC void bisect_interval(
     /* Don't use a shared cache, because x or cm are different. */
     cache_init(&cache);
     *end_out = bisect_way(yf, &cache, start, hi, y, ysize, cm);
-  } 
+  }
 }
 
 /* --- main */
 
+STATIC void usage(const char *argv0) {
+  fprintf(stderr, "Usage: %s <input-file> <key-x> <key-y> {e|t|p}\n", argv0);
+}
+
 int main(int argc, char **argv) {
   yfile yff, *yf = &yff;
-  int c;
-  off_t ofs;
-  (void)argc;
-  (void)argv;
-  yfopen(yf, argv[1], (off_t) -1); 
-  for (ofs = yfgetsize(yf); ofs != 0; --ofs) {
-    yfseek_set(yf, ofs - 1);
-    c = YFGETCHAR(yf);
-    assert(c >= 0);
-    putchar(c);
+  const char *x;
+  const char *y;
+  const char *filename;
+  const char *mode;
+  char modec;
+  compare_mode_t cm;
+  size_t xsize, ysize;
+  off_t start, end;
+
+  /* Parse the command-line. */
+  if (argc != 5) {
+    usage(argv[0]);
+    exit(1);
   }
+  filename = argv[1];
+  x = argv[2];
+  xsize = strlen(x);
+  y = argv[3];
+  ysize = strlen(y);
+  mode = argv[4];
+  modec = mode[0] != '\0' && mode[1] != '\0' ? '\0' : mode[0];
+  if (modec == 'e') {
+    cm = CM_LE;
+  } else if (modec == 't') {
+    cm = CM_LT;
+  } else if (modec == 'p') {
+    cm = CM_LP;
+  } else {
+    usage(argv[0]);
+    exit(0);
+  }
+  /* TODO(pts): Add flag for a single binary search only. */
+
+  /* TODO(pts): Make the initial lo and hi offsets configurable. */
+  yfopen(yf, filename, (off_t)-1);
+  bisect_interval(yf, 0, (off_t)-1, cm, x, xsize, y, ysize, &start, &end);
   yfclose(yf);
+  printf("%lld %lld\n", (long long)start, (long long)end);
   return 0;
 }
