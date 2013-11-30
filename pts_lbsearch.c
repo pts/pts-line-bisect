@@ -231,6 +231,7 @@ STATIC ybool compare_line(yfile *yf, off_t fofs,
   c = YFGETCHAR(yf);
   if (c < 0) return 1;  /* Special casing of EOF at BOL. */
   YFUNGET(yf);
+  /* TODO(pts): Possibly speed up the loop with yfpeek(...). */
   for (;;) {
     c = YFGETCHAR(yf);
     if (c < 0 || c == '\n') {
@@ -286,6 +287,7 @@ STATIC void cache_init(struct cache *cache) {
   cache->active = 3;
 }
 
+/* x[:xsize] must not contain '\n'. */
 STATIC const struct cache_entry *get_using_cache(
     yfile *yf, struct cache *cache, off_t ofs,
     const char *x, size_t xsize, compare_mode_t cm) {
@@ -358,6 +360,7 @@ STATIC off_t get_fofs_using_cache(
   }
 }
 
+/* x[:xsize] must not contain '\n'. */
 STATIC off_t bisect_way(
     yfile *yf, struct cache *cache, off_t lo, off_t hi,
     const char *x, size_t xsize, compare_mode_t cm) {
@@ -365,7 +368,6 @@ STATIC off_t bisect_way(
   off_t mid, midf;
   const struct cache_entry *entry;
   if (hi + 0ULL > size + 0ULL) hi = size;  /* Also applies to hi == -1. */
-  while (xsize > 0 && x[xsize - 1] == '\n') --xsize;
   /* is_left=true, is_open=true correspond to cm=CM_LE */
   if (cm == CM_LE && xsize == 0) return 0;  /* Shortcut. */
   if (lo >= hi) return get_fofs_using_cache(yf, cache, lo);
@@ -382,6 +384,7 @@ STATIC off_t bisect_way(
   return mid == lo ? midf : get_fofs_using_cache(yf, cache, lo);
 }
 
+/* x[:xsize] and y[:ysize] must not contain '\n'. */
 STATIC void bisect_interval(
     yfile *yf, off_t lo, off_t hi, compare_mode_t cm,
     const char *x, size_t xsize,
@@ -389,9 +392,6 @@ STATIC void bisect_interval(
     off_t *start_out, off_t *end_out) {
   off_t start;
   struct cache cache;
-  /* We do these only for the memcmp below. */
-  while (xsize > 0 && x[xsize - 1] == '\n') --xsize;
-  while (ysize > 0 && y[ysize - 1] == '\n') --ysize;
   cache_init(&cache);
   *start_out = start = bisect_way(yf, &cache, lo, hi, x, xsize, CM_LE);
   if (cm == CM_LE && xsize == ysize && 0 == memcmp(x, y, xsize)) {
@@ -475,13 +475,15 @@ int main(int argc, char **argv) {
   flags = argv[1] + 1;
   filename = argv[2];
   x = argv[3];
-  xsize = strlen(x);
+  for (p = x; *p && *p != '\n'; ++p) {}
+  xsize = p - x;  /* Make sure x[:psize] doesn't contain '\n'. */
   if (argc == 4) {
     y = NULL;
     ysize = 0;
   } else {
     y = argv[4];
-    ysize = strlen(y);
+    for (p = y; *p && *p != '\n'; ++p) {}
+    ysize = p - y;  /* Make sure x[:psize] doesn't contain '\n'. */
   }
   /* TODO(pts): Make the initial lo and hi offsets configurable. */
   for (p = flags; (flag = *p); ++p) {
