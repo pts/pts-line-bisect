@@ -153,6 +153,33 @@ int yfgetc(yfile *yf) {
   return *(unsigned char*)yf->p++;
 }
 
+/* --- Compare */
+
+typedef enum compare_mode_t {
+  CM_LE,  /* True iff x <= y (where y is read from the file. */
+  CM_LT,  /* True iff x < y. */
+  CM_LP,  /* x* < y, where x* is x + a fake byte 256 and the end. */
+} compare_mode_t;
+
+/* Compare x[:xsize] with a line read from yf. */
+ybool compare_line(yfile *yf, const char *x, size_t xsize, compare_mode_t cm) {
+  int b, c;
+  for (;;) {
+    c = YFGETCHAR(yf);
+    if (c < 0 || c == '\n') {
+      return cm == CM_LE ? xsize == 0 : 0;
+    } else if (xsize == 0) {
+      return cm != CM_LP;
+    } else if ((b = (int)*(unsigned char*)x) != c) {
+      return b < c;
+    }
+    ++x;
+    --xsize;
+  }  
+}
+
+/* --- main */
+
 int main(int argc, char **argv) {
   yfile yff, *yf = &yff;
   int c;
