@@ -46,12 +46,21 @@ typedef char ybool;
  */
 
 #ifndef YF_READ_BUF_SIZE
+/* Sensible values are 4096, 8192, 16384 and 32768.
+ * Larger values most probably don't make the program measurably faster.
+ */
 #define YF_READ_BUF_SIZE 8192
 #endif
 
 struct AssertYfReadBufSizeIsPowerOf2 {
   int  AssertYfReadBufSizeIsPowerOf2 :
       (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 0;
+};
+
+struct AssertYfReadBufSizeIsSmall {
+  int  AssertYfReadBufSizeIsSmall :
+      (((unsigned)YF_READ_BUF_SIZE << 2) >> 2) + 0ULL ==
+      YF_READ_BUF_SIZE + 0ULL;
 };
 
 typedef struct yfile {
