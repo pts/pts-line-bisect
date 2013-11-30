@@ -511,7 +511,13 @@ int main(int argc, char **argv) {
     usage_error(argv[0], "single-key contents is always empty");
   }
   yfopen(yf, filename, (off_t)-1);
-  if (y || cm != CM_LE || printing != PR_OFFSETS) {
+  if (!y && cm == CM_LE && printing == PR_OFFSETS) {
+    struct cache cache;
+    cache_init(&cache);
+    start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cm);  /* CM_LE. */
+    yfclose(yf);
+    printf("%lld\n", (long long)start);
+  } else {
     if (!y) {
       y = x;
       ysize = xsize;
@@ -525,12 +531,6 @@ int main(int argc, char **argv) {
     }
     yfclose(yf);
     if (start >= end) exit(3);  /* No match found. */
-  } else {
-    struct cache cache;
-    cache_init(&cache);
-    start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cm);  /* CM_LE. */
-    yfclose(yf);
-    printf("%lld\n", (long long)start);
   }
   if (ferror(stdout)) {
     fprintf(stderr, "error: error writing lbsearch output\n");
