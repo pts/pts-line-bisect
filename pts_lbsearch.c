@@ -440,6 +440,7 @@ STATIC void bisect_interval(
     off_t *start_out, off_t *end_out) {
   off_t start;
   struct cache cache;
+  /* TODO(pts): If y < x, then don't even read the file. Smart compare! */
   cache_init(&cache);
   *start_out = start = bisect_way(yf, &cache, lo, hi, x, xsize, CM_LE);
   if (cm == CM_LE && xsize == ysize && 0 == memcmp(x, y, xsize)) {
