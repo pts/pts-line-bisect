@@ -2,7 +2,7 @@
   set -ex; ${CC:-gcc} -W -Wall -s -O2 -ansi -Wmissing-declarations \
       -o pts_lbsearch "$0"; : OK; exit
 /*
- * pts_lbsearch.c: Fast binary search in a line-sorted file.
+ * pts_lbsearch.c: Fast binary search in a line-sorted text file.
  * by pts@fazekas.hu at Sat Nov 30 02:42:03 CET 2013
  *
  * License: GNU GPL v2 or newer, at your choice.
@@ -37,6 +37,12 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+/* Win32 compatibility */
+/* TODO(pts): Verify that it works on Win32. */
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
 
 #ifndef STATIC
 #define STATIC static
@@ -83,7 +89,7 @@ typedef struct yfile {
  * If size != (off_t)-1, then it will be imposed as a limit.
  */
 STATIC void yfopen(yfile *yf, const char *pathname, off_t size) {
-  int fd = open(pathname, O_RDONLY);
+  int fd = open(pathname, O_RDONLY | O_BINARY);
   if (fd < 0) {
     fprintf(stderr, "error: open %s: %s\n", pathname, strerror(errno));
     exit(2);
