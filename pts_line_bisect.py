@@ -231,14 +231,12 @@ class LineBisecter(object):
       y = x
     else:
       y = y.strip('\n')
+    start = self.bisect_left(x, lo, hi)
     if is_open and x == y:
-      start = self.bisect_left(x, lo, hi)
       return start, start
     else:
       # Don't use a shared cache, x or is_left are different.
-      start = self.bisect_left(x, lo, hi)
-      end = self.bisect_way(y, is_open, start, hi)
-      return start, end
+      return start, self.bisect_way(y, is_open, start, hi)
 
 
 def test_extra(extra_len):
