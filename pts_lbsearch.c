@@ -15,13 +15,17 @@
  * * very small memory usage: only a dozen of offsets of flags in addition to
  *   a single file read buffer (of 8K by default)
  *
- * TODO(pts): Test largefile support.
  * TODO(pts): Document LC_ALL=C sort etc.
+ * TODO(pts): Document why the btree index is faster (fewer seeks).
+ *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  */
 
-/* #define _LARGEFILE64_SOURCE  -- this would be off64_t, lseek64 etc. */
+/* #define _LARGEFILE64_SOURCE  -- this would enable off64_t, lseek64 etc. */
+#ifndef _FILE_OFFSET_BITS
+/* Manual testing with a file of 6.2GB worked. */
 #define _FILE_OFFSET_BITS 64
+#endif
 
 #define YF_READ_BUF_SIZE 8192  /* Must be a power of 2. */
 
@@ -371,7 +375,12 @@ STATIC off_t get_fofs_using_cache(
   }
 }
 
-/* x[:xsize] must not contain '\n'. */
+/* x[:xsize] must not contain '\n'.
+ *
+ * cm=CM_LE is equivalent to is_left=true and is_open=true.
+ * cm=CM_LT is equivalent to is_left=false and is_open=false.
+ * cm=CL_LP is also supported, it does prefix search.
+ */
 STATIC off_t bisect_way(
     yfile *yf, struct cache *cache, off_t lo, off_t hi,
     const char *x, size_t xsize, compare_mode_t cm) {
