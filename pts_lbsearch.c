@@ -497,5 +497,9 @@ int main(int argc, char **argv) {
     yfclose(yf);
     printf("%lld\n", (long long)start);
   }
+  if (ferror(stdout)) {
+    fprintf(stderr, "error: error writing lbsearch output\n");
+    exit(2);
+  }
   return 0;
 }
