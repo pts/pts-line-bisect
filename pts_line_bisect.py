@@ -240,17 +240,6 @@ class LineBisecter(object):
       end = self.bisect_way(y, is_open, start, hi)
       return start, end
 
-  def bisect_open(self, x, y=None, lo=0, hi=None):
-    """Returns (start, end) offset pairs for x <= line < y."""
-    x = x.rstrip('\n')
-    if y is None:
-      y = x
-    else:
-      y = y.strip('\n')
-    start = self.bisect_left(x, lo, hi)
-    end = self.bisect_right(y, start, hi)
-    return start, end
-
 
 def test_extra(extra_len):
   import cStringIO
