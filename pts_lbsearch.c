@@ -24,7 +24,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#ifndef STATIC
 #define STATIC static
+#endif
 
 typedef char ybool;
 
@@ -35,7 +37,8 @@ typedef char ybool;
 #endif
 
 struct AssertYfReadBufSizeIsPowerOf2 {
-  int _ : (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 0;
+  int  AssertYfReadBufSizeIsPowerOf2 :
+      (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 30;
 };
 
 typedef struct yfile {
