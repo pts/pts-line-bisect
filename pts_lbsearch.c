@@ -15,9 +15,6 @@
  * * very small memory usage: only a dozen of offsets of flags in addition to
  *   a single file read buffer (of 8K by default)
  *
- * TODO(pts): Document LC_ALL=C sort etc.
- * TODO(pts): Document why the btree index is faster (fewer seeks).
- *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  */
 
