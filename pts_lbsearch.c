@@ -345,7 +345,7 @@ STATIC void bisect_interval(
   off_t start;
   struct cache cache;
   while (xsize > 0 && x[xsize - 1] == '\n') --xsize;
-  while (ysize > 0 && x[ysize - 1] == '\n') --ysize;
+  while (ysize > 0 && y[ysize - 1] == '\n') --ysize;
   cache_init(&cache);
   *start_out = start = bisect_way(yf, &cache, lo, hi, x, xsize, CM_LE);
   if (cm == CM_LE && xsize == ysize && 0 == memcmp(x, y, xsize)) {
