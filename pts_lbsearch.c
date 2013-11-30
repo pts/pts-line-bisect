@@ -469,7 +469,6 @@ int main(int argc, char **argv) {
   printing_t printing = PR_UNSET;
 
   /* Parse the command-line. */
-  /* TODO(pts): Add more useful usage error message. */
   if (argc != 4 && argc != 5) usage_error(argv[0], "incorrect argument count");
   if (argv[1][0] != '-') usage_error(argv[0], "missing flags");
   flags = argv[1] + 1;
@@ -485,7 +484,7 @@ int main(int argc, char **argv) {
     for (p = y; *p && *p != '\n'; ++p) {}
     ysize = p - y;  /* Make sure x[:psize] doesn't contain '\n'. */
   }
-  /* TODO(pts): Make the initial lo and hi offsets configurable. */
+  /* TODO(pts): Make the initial lo and hi offsets specifiable. */
   for (p = flags; (flag = *p); ++p) {
     if (flag == 'e') {
       if (cm != CM_UNSET) usage_error(argv[0], "multiple boundary flags");
