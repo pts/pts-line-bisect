@@ -23,6 +23,7 @@
 /* #define _LARGEFILE64_SOURCE  -- this would enable off64_t, lseek64 etc. */
 #ifndef _FILE_OFFSET_BITS
 /* Manual testing with a file of 6.2GB worked. */
+/* TODO(pts): What is the Win32 (MinGW) equivalent? */
 #define _FILE_OFFSET_BITS 64
 #endif
 
