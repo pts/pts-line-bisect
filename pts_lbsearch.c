@@ -569,6 +569,8 @@ int main(int argc, char **argv) {
         usage_error(argv[0], "multiple incomplete flags");
       }
       incomplete = IN_IGNORE;
+    } else {
+      usage_error(argv[0], "unsupported flag");
     }
   }
   if (cm == CM_UNSET) usage_error(argv[0], "missing boundary flag");
