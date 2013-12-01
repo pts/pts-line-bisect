@@ -3,12 +3,6 @@
 
 """Newline-separated file line bisection algorithms."""
 
-# TODO(pts): Remove once development has finished.
-_hitc = 0
-_xhitc = 0
-_allc = 0
-
-
 def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
   """Get from cache and update cache.
 
@@ -23,24 +17,19 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
     dummy value is useless to the caller.
   """
   # TODO(pts): Add support for caches larger than 2 (possibly unlimited).
-  global _hitc, _xhitc, _allc
-  _allc += 1
   assert len(ab) <= 2
   if ab and ab[0][2] <= ofs <= ab[0][0]:
-    _xhitc += 1
     ab.reverse()  # Move ab[0] to the end since we've just fetched it.
   elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
-    _xhitc += 1
+    pass
   else:
     fofs = fofs_getter(ofs)
     assert 0 <= ofs <= fofs
     if ab and ab[0][0] == fofs:
-      _hitc += 1
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
     elif len(ab) > 1 and ab[-1][0] == fofs:
-      _hitc += 1
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
     else:
@@ -50,43 +39,6 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
       # no need to keep the line in mem, we can compare on-the-fly.
       ab.append([fofs, tester(line_getter(fofs)), ofs])
   return ab[-1]  # Return the most recent item of the cache.
-
-
-def _get_fofs_using_cache(ab, ofs, fofs_getter):
-  """Similar to _get_using_cache, but faster because returns fofs only.
-
-  Doesn't update the cache.
-
-  Returns:
-    fofs.
-  """
-  global _hitc, _xhitc, _allc
-  _allc += 1
-  assert len(ab) <= 2
-  if ab and ab[0][2] <= ofs <= ab[0][0]:
-    _xhitc += 1
-    ab.reverse()  # Move ab[0] to the end since we've just fetched it.
-    return ab[-1][0]
-  elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
-    _xhitc += 1
-    return ab[-1][0]
-  else:
-    fofs = fofs_getter(ofs)
-    assert 0 <= ofs <= fofs
-    if ab and ab[0][0] == fofs:
-      _hitc += 1
-      ab.reverse()  # Move ab[0] to the end since we've just fetched it.
-      if ab[-1][2] > ofs:
-        ab[-1][2] = ofs
-      # TODO(pts): Add test for this.
-    elif len(ab) > 1 and ab[-1][0] == fofs:
-      _hitc += 1
-      if ab[-1][2] > ofs:
-        ab[-1][2] = ofs
-    # We don't update the cache, because we don't call line_getter(fofs).
-    return fofs
-
-
 class LineBisecter(object):
   """Bisection (binary) search on newline-separated, sorted file lines.
 
@@ -150,35 +102,28 @@ class LineBisecter(object):
   assert '\xff' < ()
   assert '\xff' * 5 < ()
 
-  def bisect_way(self, x, is_left, lo=0, hi=None, cache=None):
+  def bisect_way(self, x, is_left, size=None):
     """Return the smallest offset where to insert line x.
-
-    To initialize a shared cache, set it to [], and pass it as cache=. Please
-    note that different values of x need a different cache: empty the cache
-    before calling with a different x.
-
-    TODO(pts): Combine x and cache so it's not possible to call incorrectly.
 
     With is_left being true, emulates bisect_left, otherwise emulates
     bisect_right.
+
+    TODO(pts): Why aren't we passing lo and hi?
     """
     x = x.rstrip('\n')
-    if lo < 0:
-      raise ValueError('lo must be non-negative')
-    if hi is None or hi > self.size:
-      hi = self.size
     if is_left and not x:  # Shortcut.
       return 0
-    if cache is None:
-      cache = []
+    if size is None:
+      self.f.seek(0, 2)
+      size = self.f.tell()
+    cache = []
     fofs_getter = self._get_fofs
-    if lo >= hi:
-      return _get_fofs_using_cache(cache, lo, fofs_getter)
     line_getter = self._readline_at_fofs
     if is_left:
       tester = x.__le__  # x <= y.
     else:
       tester = x.__lt__  # x < y.
+    lo, hi, mid = 0, size, 1
     while lo < hi:
       mid = (lo + hi) >> 1
       midf, g, _ = _get_using_cache(
@@ -188,10 +133,10 @@ class LineBisecter(object):
       else:
         lo = mid + 1
     if mid != lo:
-      midf = _get_fofs_using_cache(cache, lo, fofs_getter)
+      midf = _get_using_cache(cache, lo, fofs_getter, line_getter, tester)[0]
     return midf
 
-  def bisect_right(self, x, lo=0, hi=None, cache=None):
+  def bisect_right(self, x, size=None):
     """Return the largest offset where to insert line x.
 
     Similar to bisect.bisect_right.
@@ -200,13 +145,13 @@ class LineBisecter(object):
     a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
     insert just after the rightmost x already there.
 
-    Optional args lo (default 0) and hi (default len(a)) bound the
-    slice of a to be searched.
+    If size is not None, then everything after the first size bytes of the file
+    are ignored.
     """
     # TODO(pts): Test this.
-    return self.bisect_way(x, False, lo, hi, cache)
+    return self.bisect_way(x, False, size)
 
-  def bisect_left(self, x, lo=0, hi=None, cache=None):
+  def bisect_left(self, x, size=None):
     """Return the smallest offset where to insert line x.
 
     Similar to bisect.bisect_left.
@@ -217,10 +162,13 @@ class LineBisecter(object):
 
     Optional args lo (default 0) and hi (default len(a)) bound the
     slice of a to be searched.
-    """
-    return self.bisect_way(x, True, lo, hi, cache)
 
-  def bisect_interval(self, x, y=None, is_open=False, lo=0, hi=None):
+    If size is not None, then everything after the first size bytes of the file
+    are ignored.
+    """
+    return self.bisect_way(x, True, size)
+
+  def bisect_interval(self, x, y=None, is_open=False):
     """Returns (start, end) offset pairs for lines between x and y.
 
     If is_open is true, then the interval consits of lines x <= line < y.
@@ -231,12 +179,14 @@ class LineBisecter(object):
       y = x
     else:
       y = y.strip('\n')
-    start = self.bisect_left(x, lo, hi)
+    # TODO(pts) Compute the size.
+    start = self.bisect_left(x, self.size)
     if is_open and x == y:
       return start, start
     else:
       # Don't use a shared cache, x or is_left are different.
-      return start, self.bisect_way(y, is_open, start, hi)
+      # TODO(pts): Start from start.
+      return start, self.bisect_way(y, is_open, self.size)
 
 
 def test_extra(extra_len):
@@ -252,7 +202,7 @@ def test_extra(extra_len):
     data = a.getvalue()[: lb.size]
     assert 0 <= start <= end <= lb.size, (start, end, lb.size)
     if start == end:
-      return '-' + data[start : start + 5 ]
+      return '-' + data[start : start + 5]
     return data[start : end]
   assert bisect_interval('30') == '30\n30\n30\n30\n30\n'
   assert bisect_interval('30', is_open=True) == '-30\n30'
@@ -288,11 +238,6 @@ def test():
   test_extra(1)
   test_extra(2)
   test_extra(42)
-  # TODO(pts): Add tests for '\n\n\n' in the beginning.
-  # TODO(pts): Add longer strings where _xhitc is larger.
-  print 'cache xhit/all=%d%% hit/all=%d%%' % (
-      (_xhitc * 100 + (_allc >> 1)) // _allc,
-      (_hitc * 100 + (_allc >> 1)) // _allc)
   print 'pts_line_bisect OK.'
 
 
