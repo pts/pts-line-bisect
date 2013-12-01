@@ -259,7 +259,7 @@ STATIC int yfpeek(yfile *yf, off_t len, const char **buf_out) {
 /* --- Bisection (binary search) */
 
 typedef enum compare_mode_t {
-  CM_LE,  /* True iff x <= y (where y is read from the file. */
+  CM_LE,  /* True iff x <= y (where y is read from the file). */
   CM_LT,  /* True iff x < y. */
   CM_LP,  /* x* < y, where x* is x + a fake byte 256 and the end. */
   CM_UNSET,  /* Not set yet. Most functions do not support it. */
