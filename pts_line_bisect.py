@@ -1,7 +1,28 @@
-#! /usr/bin/python
+#! /bin/sh
 # by pts@fazekas.hu at Fri Nov 29 19:20:15 CET 2013
 
-"""Newline-separated file line bisection algorithms."""
+""":" # Newline-separated file line bisection algorithms.
+
+type -p python2.7 >/dev/null 2>&1 && exec python2.7 -- "$0" ${1+"$@"}
+type -p python2.6 >/dev/null 2>&1 && exec python2.6 -- "$0" ${1+"$@"}
+type -p python2.5 >/dev/null 2>&1 && exec python2.5 -- "$0" ${1+"$@"}
+type -p python2.4 >/dev/null 2>&1 && exec python2.4 -- "$0" ${1+"$@"}
+exec python -- "$0" ${1+"$@"}; exit 1
+
+This is a Python 2.x module, it works with Python 2.4, 2.5, 2.6 and 2.7. It
+was not probed with Python 3.x. Feel free to replace the #! line with
+`#! /usr/bin/python', `#! /usr/bin/env python' or whatever suits you best.
+
+License: GNU GPL v2 or newer, at your choice.
+
+This Python module can be used as a library or a script (see the main
+function). The script is primarily for demo purposes. For production usage,
+please use the C implementation in pts_lbsearch.c, which does less IO (i.e.
+fewer calls to lseek(2) and read(2)), is faster, has more features (i.e.
+more command-line flags).
+
+TODO(pts): Add setup.py and upload to PyPi.
+"""
 
 
 def _read_and_compare(cache, ofs, f, size, tester):
@@ -124,7 +145,7 @@ def bisect_way(f, x, is_left, size=None):
 def bisect_right(f, x, size=None):
   """Return the largest offset where to insert line x.
 
-  Similar to bisect.bisect_right.
+  Similar to bisect.bisect_left, but operates on lines rather then elements.
 
   The return value i is such that all e in a[:i] have e <= x, and all e in
   a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
@@ -139,7 +160,7 @@ def bisect_right(f, x, size=None):
 def bisect_left(f, x, size=None):
   """Return the smallest offset where to insert line x.
 
-  Similar to bisect.bisect_left.
+  Similar to bisect.bisect_left, but operates on lines rather then elements.
 
   The return value i is such that all e in a[:i] have e < x, and all e in
   a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
@@ -172,58 +193,74 @@ def bisect_interval(f, x, y=None, is_open=False, size=None):
     return bisect_way(f, x, True, end), end
 
 
-def test_extra(extra_len):
-  import cStringIO
-  f = cStringIO.StringIO(
-      '10ten\n20twenty\n30\n30\n30\n30\n30\n40forty' + 'z' * extra_len)
-  size = len(f.getvalue()) - extra_len
-  def xbisect_interval(x, y=None, is_open=False):
-    start, end = bisect_interval(f, x, y, is_open, size)
-    assert 0 <= start <= end <= size, (start, end, size)
-    data = f.getvalue()[:size]
-    if start == end:
-      return '-' + data[start : start + 5]
-    return data[start : end]
-  assert xbisect_interval('30') == '30\n30\n30\n30\n30\n'
-  assert bisect_left(f, '30', size) == 15
-  assert bisect_right(f, '30', size) == 30
-  assert bisect_left(f, '32', size) == 30
-  assert bisect_right(f, '32', size) == 30
-  assert xbisect_interval('30', is_open=True) == '-30\n30'
-  assert xbisect_interval('31') == '-40for'
-  assert xbisect_interval('31', is_open=True) == '-40for'
-  assert xbisect_interval('4') == '-40for'
-  assert xbisect_interval('4', is_open=True) == '-40for'
-  assert xbisect_interval('40') == '-40for'
-  assert xbisect_interval('40', is_open=True) == '-40for'
-  assert xbisect_interval('41') == '-'
-  assert xbisect_interval('41', is_open=True) == '-'
-  assert xbisect_interval('25') == '-30\n30'
-  assert xbisect_interval('25', is_open=True) == '-30\n30'
-  assert xbisect_interval('15') == '-20twe'
-  assert xbisect_interval('15', is_open=True) == '-20twe'
-  assert xbisect_interval('1') == '-10ten'
-  assert xbisect_interval('1', is_open=True) == '-10ten'
-  assert xbisect_interval('') == '-10ten'
-  assert xbisect_interval('', is_open=True) == '-10ten'
-  assert xbisect_interval('10ten') == '10ten\n'
-  assert xbisect_interval('10ten', is_open=True) == '-10ten'
-  assert xbisect_interval('10ten\n\n\n') == '10ten\n'
-  assert xbisect_interval('10', '20') == '10ten\n'
-  assert xbisect_interval('10', '20', True) == '10ten\n'
-  assert xbisect_interval('10', '20twenty') == '10ten\n20twenty\n'
-  assert xbisect_interval('10', '20twenty', is_open=True) == '10ten\n'
-  assert xbisect_interval('10', '30') == '10ten\n20twenty\n30\n30\n30\n30\n30\n'
-  assert xbisect_interval('10', '30', True) == '10ten\n20twenty\n'
-
-
-def test():
-  test_extra(0)
-  test_extra(1)
-  test_extra(2)
-  test_extra(42)
-  print 'pts_line_bisect OK.'
+def main(argv):
+  # Command-line is a subset of pts_lbsearch.c. We are a bit slower, because
+  # we seek more.
+  import sys
+  def usage_error(msg):
+    sys.stderr.write(
+        'Binary search (bisection) in a sorted text file\n'
+        'Usage: %s -<flags> <sorted-text-file> <key-x> <key-y>\n'
+        '<key-x> is the first key to search for\n'
+        '<key-y> is the last key to search for; default is <key-x>\n'
+        'Flags:\n'
+        'e: do bisect_left, open interval (but beginning is always closed)\n'
+        't: do bisect_right, closed interval\n'
+        'c: print file contents (default)\n'
+        'o: print file offsets\n'
+        'usage error: %s\n' % (argv[0], msg))
+    sys.exit(1)
+  if len(argv) not in (4, 5):
+    usage_error('incorrect argument count')
+  if not argv[1].startswith('-'):
+    usage_error('missing flags')
+  filename = argv[2]
+  x = argv[3].rstrip('\n')
+  if len(argv) > 4:
+    y = argv[4].rstrip('\n')
+  else:
+    y = None
+  is_open = None
+  do_print_contents = True
+  for flag in argv[1][1:]:
+    if flag == 'e':
+      is_open = True
+    elif flag == 't':
+      is_open = False
+    elif flag == 'c':
+      do_print_contents = True
+    elif flag == 'o':
+      do_print_contents = False
+    else:
+      usage_error('unsupported flag')
+  if is_open is None:
+    usage_error('missing boundary flag')
+  if is_open and do_print_contents and y is None:
+    usage_error('single-key contents is always empty')
+  f = open(filename)
+  try:
+    if is_open and not do_print_contents:
+      sys.stdout.write('%d\n' % bisect_way(f, x, True))
+    else:
+      start, end = bisect_interval(f, x, y, is_open)
+      if do_print_contents:
+        # Similar to: f.rewind(); sys.stdout.write(f.read()[start : end])
+        f.seek(start)
+        remaining = end - start
+        while remaining > 0:
+          data = f.read(min(remaining, 65536))
+          if not data:
+            break
+          sys.stdout.write(data)
+          remaining -= len(data)
+      else:
+        sys.stdout.write('%d %s\n' % (start, end))
+      if start >= end:
+        sys.exit(3)
+  finally:
+    f.close()
 
 
 if __name__ == '__main__':
-  test()
+  import sys
+  sys.exit(main(sys.argv))

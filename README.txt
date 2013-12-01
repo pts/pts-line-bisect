@@ -77,17 +77,22 @@ are faster lookup solutions than binary search. But if indeed you want
 binary search on variable-length records, most probably pts_lbsearch is the
 fastest.
 
-Developer documentation
-~~~~~~~~~~~~~~~~~~~~~~~
+Python implementation
+~~~~~~~~~~~~~~~~~~~~~
+There is a Python implementation in the file pts_line_bisect.py.
+
 Differences in the C and Python implementations:
 
-* The Python implementation is just a library, it has no command-line
-  interface.
-* The Python implementation has tests.
+* The C implementation is much faster, because avoids lseek(2) and read(2)
+  calls as much as possible, while the Python implementation doesn't,
+  because in Python the `file' object discards the read buffer after each
+  file.seek.
+* The Python implementation is more compact, contains more comments, and it
+  is easier to understand, reuse as a library and extend.
+* The C implementation has a more versatile command-line interface. The Python
+  implementation supports flags etco only.
+* The Python implementation has unit tests.
 * The C implementation supports prefix search (CM_LP).
-* The C implementation avoids lseek(2) and read(2) calls as much as
-  possible, while the Python implementation doesn't, because in Python the
-  `file' object discards the read buffer after each file.seek.
 * The C equivalent of bisect_interval does a CM_LE search and then a CM_LT
   for the rest. This is faster if the result interval is a short range near
   the end of the file.

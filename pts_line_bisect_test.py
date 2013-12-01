@@ -1,7 +1,14 @@
-#! /usr/bin/python
-# by pts@fazekas.hu at Fri Nov 29 19:20:15 CET 2013
+#! /bin/sh
+# by pts@fazekas.hu at Sun Dec  1 12:46:54 CET 2013
 
-"""Unit tests for Newline-separated file line bisection algorithms."""
+""":" # Unit tests for newline-separated file line bisection algorithms.
+
+type -p python2.7 >/dev/null 2>&1 && exec python2.7 -- "$0" ${1+"$@"}
+type -p python2.6 >/dev/null 2>&1 && exec python2.6 -- "$0" ${1+"$@"}
+type -p python2.5 >/dev/null 2>&1 && exec python2.5 -- "$0" ${1+"$@"}
+type -p python2.4 >/dev/null 2>&1 && exec python2.4 -- "$0" ${1+"$@"}
+exec python -- "$0" ${1+"$@"}; exit 1
+"""
 
 import cStringIO
 import unittest
@@ -88,7 +95,6 @@ class PtsLineBisect0Test(unittest.TestCase):
 
 class PtsLineBisect1Test(PtsLineBisect0Test):
   EXTRA_LEN = 1
-
 
 
 class PtsLineBisect2Test(PtsLineBisect0Test):
