@@ -102,5 +102,12 @@ Differences in the C and Python implementations:
 * The C equivalent of bisect_interval does a CM_LE search and then a CM_LT
   for the rest. This is faster if the result interval is a short range near
   the end of the file.
+* The C implementation has a very small memory footprint: only dozens of
+  offsets and flags in addition to a single file read buffer (of 8KB by
+  default).
+* The C implementation doesn't do any dynamic memory allocation (except
+  possibly by the printfs generating messages), it's so lightweight and so
+  low-overhead that it can be used in memory-constrained environments such
+  as routers.
 
 __EOF__
