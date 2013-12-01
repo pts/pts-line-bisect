@@ -4,24 +4,6 @@
 """Newline-separated file line bisection algorithms."""
 
 
-def _readline_at_fofs(f, fofs, size):
-  """Returns line at fofs, or () on EOF (or truncation at size)."""
-  if fofs < 0:
-    raise ValueError('Negative line read offset.')
-  if fofs >= size:
-    return ()
-  # assert f.tell() == fofs  # TODO(pts): Why false?
-  if f.tell() != fofs:  # `if' needed to prevent unnecessary lseek(2) call.
-    f.seek(fofs)
-  line = f.readline()
-  if not line:
-    return ()
-  line = line.rstrip('\n')
-  if fofs + len(line) > size:
-    line = line[:size - fofs]
-  return line
-
-
 # We encode EOF as () and we use the fact that it is larger than any string.
 # TODO(pts): Get rid of this.
 assert '' < ()
@@ -51,7 +33,8 @@ def _get_using_cache(ab, ofs, f, size, tester):
     pass
   else:
     if ofs:
-      f.seek(ofs - 1)
+      if f.tell() != ofs - 1:  # Avoid lseek(2) call if not needed.
+        f.seek(ofs - 1)
       f.readline()
       # Calling f.tell() is cheap, because Python caches the lseek(2) retval.
       fofs = min(size, f.tell())
@@ -66,9 +49,21 @@ def _get_using_cache(ab, ofs, f, size, tester):
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
     else:
+      if fofs >= size:
+        line = ()
+      else:
+        if not fofs and f.tell():
+          f.seek(0)
+        line = f.readline()
+        if not line:
+          line = ()
+        else:
+          line = line.rstrip('\n')
+          if fofs + len(line) > size:
+            line = line[:size - fofs]
       if len(ab) > 1:  # Don't keep more than 2 items in the cache.
         del ab[0]
-      ab.append([fofs, tester(_readline_at_fofs(f, fofs, size)), ofs])
+      ab.append([fofs, tester(line), ofs])
   return ab[-1]  # Return the most recent item of the cache.
 
 
