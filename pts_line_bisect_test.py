@@ -16,6 +16,51 @@ import unittest
 import pts_line_bisect
 
 
+def mini_bisect_left(f, x):
+  """Small and slow implementation of bisect_left without size limit."""
+  x = x.rstrip('\n')
+  if not x: return 0  # Shortcut.
+  f.seek(0, 2)  # Seek to EOF.
+  size = f.tell()
+  if size <= 0: return 0  # Shortcut.
+  lo, hi, mid = 0, size - 1, 1
+  while lo < hi:
+    mid = (lo + hi) >> 1
+    if mid > 0:
+      f.seek(mid - 1)  # Just to figure out where our line starts.
+      f.readline()  # Ignore previous line, find our line.
+      midf = f.tell()
+    else:
+      midf = 0
+      f.seek(midf)
+    line = f.readline()  # We read at f.tell() == midf.
+    # EOF (`not line') is always larger than any line we search for.
+    if not line or x <= line.rstrip('\n'):
+      hi = mid
+    else:
+      lo = mid + 1
+  if mid == lo: return midf  # Shortcut.
+  if lo <= 0: return 0
+  f.seek(lo - 1)
+  f.readline()
+  return f.tell()
+
+
+def new_bisect_way(f, x, is_left, size=None):
+  fofs = old_bisect_way(f, x, is_left, size)
+  if is_left and (size is None or getattr(f, 'getvalue', None)):
+    if size is not None:
+      f = cStringIO.StringIO(f.getvalue()[:size])
+    fofs2 = mini_bisect_left(f, x)
+    assert fofs == fofs2, (
+        'bisect_left mismatch for x=%r: old=%d mini=%s' % (x, fofs, fofs2))
+  return fofs
+
+
+old_bisect_way = pts_line_bisect.bisect_way
+pts_line_bisect.bisect_way = new_bisect_way
+
+
 class PtsLineBisect0Test(unittest.TestCase):
   EXTRA_LEN = 0
 
