@@ -463,8 +463,10 @@ STATIC void usage(const char *argv0) {
           "<key-x> is the first key to search for\n"
           "<key-y> is the last key to search for; default is <key-x>\n"
           "Flags:\n"
-          "e: do bisect_left, open interval (but beginning is always closed)\n"
-          "t: do bisect_right, closed interval\n"
+          "e: do bisect_left, open interval end\n"
+          "t: do bisect_right, closed interval end\n"
+          "b: do bisect_left for interval start (default)\n"
+          "a: do bisect_right for interval start (for append position)\n"
           "p: do prefix search\n"
           "c: print file contents (default)\n"
           "o: print file offsets\n"
@@ -523,6 +525,7 @@ int main(int argc, char **argv) {
   const char *p;
   char flag;
   compare_mode_t cm = CM_UNSET;
+  compare_mode_t cmstart = CM_UNSET;
   size_t xsize, ysize;
   off_t start, end;
   printing_t printing = PR_UNSET;
@@ -555,6 +558,12 @@ int main(int argc, char **argv) {
     } else if (flag == 'p') {
       if (cm != CM_UNSET) usage_error(argv[0], "multiple boundary flags");
       cm = CM_LP;
+    } else if (flag == 'b') {
+      if (cmstart != CM_UNSET) usage_error(argv[0], "multiple start flags");
+      cmstart = CM_LE;
+    } else if (flag == 'a') {
+      if (cmstart != CM_UNSET) usage_error(argv[0], "multiple start flags");
+      cmstart = CM_LT;
     } else if (flag == 'o') {
       if (printing != PR_UNSET) usage_error(argv[0], "multiple printing flags");
       printing = PR_OFFSETS;
@@ -573,9 +582,14 @@ int main(int argc, char **argv) {
       usage_error(argv[0], "unsupported flag");
     }
   }
-  if (cm == CM_UNSET) usage_error(argv[0], "missing boundary flag");
   if (printing == PR_UNSET) printing = PR_CONTENTS;
   if (incomplete == IN_UNSET) incomplete = IN_USE;
+  if (cmstart == CM_UNSET) cmstart = CM_LE;
+  if (cm == CM_UNSET) usage_error(argv[0], "missing boundary flag");
+  if (cmstart == CM_LT && !(!y && cm == CM_LE && printing == PR_OFFSETS)) {
+    /* TODO(pts): Make cmstart=CM_LT work in bisect_interval etc. */
+    usage_error(argv[0], "flag -a needs -eo and no <key-y>");
+  }
   if (!y && printing != PR_OFFSETS && cm == CM_LE) {
     usage_error(argv[0], "single-key contents is always empty");
   }
@@ -594,7 +608,7 @@ int main(int argc, char **argv) {
   if (!y && cm == CM_LE && printing == PR_OFFSETS) {
     struct cache cache;
     cache_init(&cache);
-    start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cm);  /* CM_LE. */
+    start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cmstart);
     yfclose(yf);
     printf("%lld\n", (long long)start);
   } else if (printing == PR_DETECT &&

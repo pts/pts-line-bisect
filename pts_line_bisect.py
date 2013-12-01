@@ -218,8 +218,10 @@ def main(argv):
         '<key-x> is the first key to search for\n'
         '<key-y> is the last key to search for; default is <key-x>\n'
         'Flags:\n'
-        'e: do bisect_left, open interval (but beginning is always closed)\n'
-        't: do bisect_right, closed interval\n'
+        'e: do bisect_left, open interval end\n'
+        't: do bisect_right, closed interval end\n'
+        'b: do bisect_left for interval start (default)\n'
+        'a: do bisect_right for interval start (for append position)\n'
         'c: print file contents (default)\n'
         'o: print file offsets\n'
         'usage error: %s\n' % (argv[0], msg))
@@ -235,12 +237,17 @@ def main(argv):
   else:
     y = None
   is_open = None
+  is_leftstart = True
   do_print_contents = True
   for flag in argv[1][1:]:
     if flag == 'e':
       is_open = True
     elif flag == 't':
       is_open = False
+    elif flag == 'b':
+      is_leftstart = True
+    elif flag == 'a':
+      is_leftstart = False
     elif flag == 'c':
       do_print_contents = True
     elif flag == 'o':
@@ -249,12 +256,14 @@ def main(argv):
       usage_error('unsupported flag')
   if is_open is None:
     usage_error('missing boundary flag')
+  if not is_leftstart and not (is_open and not do_print_contents and y is None):
+    usage_error('flag -a needs -eo and no <key-y>')
   if is_open and do_print_contents and y is None:
     usage_error('single-key contents is always empty')
   f = open(filename)
   try:
     if is_open and not do_print_contents and y is None:
-      sys.stdout.write('%d\n' % bisect_way(f, x, True))
+      sys.stdout.write('%d\n' % bisect_way(f, x, is_leftstart))
     else:
       start, end = bisect_interval(f, x, y, is_open)
       if do_print_contents:

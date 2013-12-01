@@ -42,10 +42,16 @@ Exact detection: exit(0) iff a line equals to foo is present:
 
   $ pts_lbsearch -qt file.sorted foo
 
-Insert position: print the smallest offset where foo can be inserted (please
+Prepend position: print the smallest offset where foo can be inserted (please
 note that this does not report whether foo is present, always exit(0)).
 
   $ pts_lbsearch -oe file.sorted foo
+
+Append position: print the largest offset where foo can be inserted (please
+note that this does not report whether foo is present, always exit(0), also
+you may need to append a '\n' before appending foo at EOF).
+
+  $ pts_lbsearch -oae file.sorted foo
 
 Prefix range: print the range (start byte offset and after-the-last-byte end
 offset) of lines starting with foo:
