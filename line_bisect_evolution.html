@@ -13,6 +13,19 @@ body {
       "Nimbus Roman No9 L Regular", "Liberation Serif", Times, serif;
   font-size: 12pt;
 }
+h1, h2, h3 {
+  color: #050;
+}
+h1 {
+  border-top: 3px solid #050;
+  border-left: 3px solid #050;
+  padding-left: 10pt;
+  padding-top: 0ex;
+}
+div.h1, h3 {
+  border-left: 3px solid #050;
+  padding-left: 10pt;
+}
 pre, code, tt {
   font-size: 75%;
   font-family: "DejaVu Sans Mono", "Bitstream Vera Sans Mono",
@@ -90,7 +103,7 @@ table.i thead {
 </head><body>
 <h1 style="margin-top:0px;margin-bottom:0px">Evolution
 of a binary search implementation for line-sorted text files</h1>
-<div>by Péter Szabó
+<div class=h1>by Péter Szabó
 &#x3008<a href="mailto:pts@fazekas.hu">pts@fazekas.hu</a>&#x3009;
 at Sun Dec  1 15:31:06 CET 2013</div>
 
@@ -118,7 +131,7 @@ sorted, so the timestamp has to be decoded first for the comparison.
 The <a href="https://code.google.com/p/bsearch/">bsearch</a> tool does that,
 it also supports parsing arbitrary, user-specifiable datetime formats, and it
 can binary search in
-<a href="http://en.wikipedia.org/wiki/Gzip">gzip(1)ped</a> files as well
+<a href="http://en.wikipedia.org/wiki/Gzip">gzip(1)</a>ped files as well
 (by building an index). It's also of high performance and low overhead,
 partially because it is written in C++. So <i>bsearch</i> is practical tool
 with lots of useful features.
