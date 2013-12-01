@@ -16,6 +16,8 @@
  *   a single file read buffer (of 8K by default)
  *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
+ *
+ * TODO(pts): Add flag `-aq' for only CM_LT offset.
  */
 
 /* #define _LARGEFILE64_SOURCE  -- this would enable off64_t, lseek64 etc. */
