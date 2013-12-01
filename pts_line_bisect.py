@@ -239,7 +239,7 @@ def main(argv):
     usage_error('single-key contents is always empty')
   f = open(filename)
   try:
-    if is_open and not do_print_contents:
+    if is_open and not do_print_contents and y is None:
       sys.stdout.write('%d\n' % bisect_way(f, x, True))
     else:
       start, end = bisect_interval(f, x, y, is_open)
