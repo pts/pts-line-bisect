@@ -3,7 +3,49 @@
 
 """Newline-separated file line bisection algorithms."""
 
-def _get_using_cache(ab, ofs, size, fofs_getter, line_getter, tester):
+
+def _readline_at_fofs(f, fofs, size):
+  """Returns line at fofs, or () on EOF (or truncation at size)."""
+  if fofs < 0:
+    raise ValueError('Negative line read offset.')
+  if fofs >= size:
+    return ()
+  # TODO(pts): Maintain an offset map and a line cache.
+  if f.tell() != fofs:  # `if' needed to prevent unnecessary lseek(2) call.
+    f.seek(fofs)
+  line = f.readline()
+  if not line:
+    return ()
+  line = line.rstrip('\n')
+  if fofs + len(line) > size:
+    line = line[:size - fofs]
+  return line
+
+
+def _get_fofs(f, ofs, size):
+  """Returns fofs (fofs >= ofs)."""
+  if not ofs:
+    return 0
+  if ofs < 0:
+    raise ValueError('Negative line read offset.')
+  if ofs >= size:
+    return size
+  ofs -= 1
+  f.seek(ofs)
+  line = f.readline()
+  if line:
+    return min(size, ofs + len(line))
+  return ofs
+
+
+# We encode EOF as () and we use the fact that it is larger than any string.
+# TODO(pts): Get rid of this.
+assert '' < ()
+assert '\xff' < ()
+assert '\xff' * 5 < ()
+
+
+def _get_using_cache(ab, ofs, f, size, tester):
   """Get from cache and update cache.
 
   To create an empty cache, set ab to [].
@@ -23,7 +65,7 @@ def _get_using_cache(ab, ofs, size, fofs_getter, line_getter, tester):
   elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
     pass
   else:
-    fofs = fofs_getter(ofs, size)
+    fofs = _get_fofs(f, ofs, size)
     assert 0 <= ofs <= fofs
     if ab and ab[0][0] == fofs:
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
@@ -35,9 +77,7 @@ def _get_using_cache(ab, ofs, size, fofs_getter, line_getter, tester):
     else:
       if len(ab) > 1:  # Don't keep more than 2 items in the cache.
         del ab[0]
-      # In C we can optimize the combination of line_getter and tester: we
-      # no need to keep the line in mem, we can compare on-the-fly.
-      ab.append([fofs, tester(line_getter(fofs, size)), ofs])
+      ab.append([fofs, tester(_readline_at_fofs(f, fofs, size)), ofs])
   return ab[-1]  # Return the most recent item of the cache.
 
 
@@ -56,45 +96,6 @@ class LineBisecter(object):
   def __init__(self, f):
     self.f = f
 
-  def _readline_at_fofs(self, fofs, size):
-    """Returns line at fofs, or () on EOF (or truncation at size)."""
-    if fofs < 0:
-      raise ValueError('Negative line read offset.')
-    f = self.f
-    if fofs >= size:
-      return ()
-    # TODO(pts): Maintain an offset map and a line cache.
-    if f.tell() != fofs:  # `if' needed to prevent unnecessary lseek(2) call.
-      f.seek(fofs)
-    line = f.readline()
-    if not line:
-      return ()
-    line = line.rstrip('\n')
-    if fofs + len(line) > size:
-      line = line[:size - fofs]
-    return line
-
-  def _get_fofs(self, ofs, size):
-    """Returns fofs (fofs >= ofs)."""
-    if not ofs:
-      return 0
-    if ofs < 0:
-      raise ValueError('Negative line read offset.')
-    if ofs >= size:
-      return size
-    f = self.f
-    ofs -= 1
-    f.seek(ofs)
-    line = f.readline()
-    if line:
-      return min(size, ofs + len(line))
-    return ofs
-
-  # We encode EOF as () and we use the fact that it is larger than any string.
-  assert '' < ()
-  assert '\xff' < ()
-  assert '\xff' * 5 < ()
-
   def bisect_way(self, x, is_left, size=None):
     """Return the smallest offset where to insert line x.
 
@@ -110,8 +111,6 @@ class LineBisecter(object):
       self.f.seek(0, 2)
       size = self.f.tell()
     cache = []
-    fofs_getter = self._get_fofs
-    line_getter = self._readline_at_fofs
     if is_left:
       tester = x.__le__  # x <= y.
     else:
@@ -119,15 +118,13 @@ class LineBisecter(object):
     lo, hi, mid = 0, size, 1
     while lo < hi:
       mid = (lo + hi) >> 1
-      midf, g, _ = _get_using_cache(
-          cache, mid, size, fofs_getter, line_getter, tester)
+      midf, g, _ = _get_using_cache(cache, mid, self.f, size, tester)
       if g:
         hi = mid
       else:
         lo = mid + 1
     if mid != lo:
-      midf = _get_using_cache(
-          cache, lo, size, fofs_getter, line_getter, tester)[0]
+      midf = _get_using_cache(cache, lo, self.f, size, tester)[0]
     return midf
 
   def bisect_right(self, x, size=None):
