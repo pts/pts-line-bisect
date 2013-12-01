@@ -179,14 +179,11 @@ class LineBisecter(object):
       y = x
     else:
       y = y.strip('\n')
-    # TODO(pts) Compute the size.
-    start = self.bisect_left(x, self.size)
+    end = self.bisect_way(y, is_open, self.size)
     if is_open and x == y:
-      return start, start
+      return end, end
     else:
-      # Don't use a shared cache, x or is_left are different.
-      # TODO(pts): Start from start.
-      return start, self.bisect_way(y, is_open, self.size)
+      return self.bisect_left(x, end), end
 
 
 def test_extra(extra_len):
