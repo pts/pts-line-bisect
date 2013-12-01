@@ -1,0 +1,1093 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+    "http://www.w3.org/TR/html4/loose.dtd">
+<html><head>
+<title>Evolution of a binary search implementation
+for line-sorted text files</title>
+<meta http-equiv="content-type" content="text/html; charset=utf-8">
+<style type="text/css">
+body {
+  margin: 1.2ex;
+  background: #fff;
+  color: #000;
+  font-family: "Times New Roman", Cambria, "Hoefler Text", Utopia,
+      "Nimbus Roman No9 L Regular", "Liberation Serif", Times, serif;
+  font-size: 12pt;
+}
+h1, h2, h3 {
+  color: #050;
+}
+h1 {
+  border-top: 3px solid #050;
+  border-left: 3px solid #050;
+  padding-left: 10pt;
+  padding-top: 0ex;
+}
+div.h1, h3 {
+  border-left: 3px solid #050;
+  padding-left: 10pt;
+}
+pre, code, tt {
+  font-size: 75%;
+  font-family: "DejaVu Sans Mono", "Bitstream Vera Sans Mono",
+      "Liberation Mono", Consolas, "Lucida Console",
+      "Lucida Sans Typewriter", "Andale Mono WT", "Andale Mono",
+      "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
+}
+/* syntax highlighting */
+// Example [pre class=syntax][span class=c]...[/pre]
+// Example [code class=syntax][span class=c]...[/code]
+//.syntax .hll { background-color: #ffffcc }
+//.syntax  { background: #ffffff; }
+.syntax .c { color: #008800; font-style: italic } /* Comment */
+.syntax .err { color: #a61717; background-color: #e3d2d2 } /* Error */
+.syntax .k { color: #000080; font-weight: bold } /* Keyword */
+.syntax .cm { color: #008800; font-style: italic } /* Comment.Multiline */
+.syntax .cp { color: #008080 } /* Comment.Preproc */
+.syntax .c1 { color: #008800; font-style: italic } /* Comment.Single */
+.syntax .cs { color: #008800; font-weight: bold } /* Comment.Special */
+.syntax .gd { color: #000000; background-color: #ffdddd } /* Generic.Deleted */
+.syntax .ge { font-style: italic } /* Generic.Emph */
+.syntax .gr { color: #aa0000 } /* Generic.Error */
+.syntax .gh { color: #999999 } /* Generic.Heading */
+.syntax .gi { color: #000000; background-color: #ddffdd } /* Generic.Inserted */
+.syntax .go { color: #888888 } /* Generic.Output */
+.syntax .gp { color: #555555 } /* Generic.Prompt */
+.syntax .gs { font-weight: bold } /* Generic.Strong */
+.syntax .gu { color: #aaaaaa } /* Generic.Subheading */
+.syntax .gt { color: #aa0000 } /* Generic.Traceback */
+.syntax .kc { color: #000080; font-weight: bold } /* Keyword.Constant */
+.syntax .kd { color: #000080; font-weight: bold } /* Keyword.Declaration */
+.syntax .kn { color: #000080; font-weight: bold } /* Keyword.Namespace */
+.syntax .kp { color: #000080; font-weight: bold } /* Keyword.Pseudo */
+.syntax .kr { color: #000080; font-weight: bold } /* Keyword.Reserved */
+.syntax .kt { color: #000080; font-weight: bold } /* Keyword.Type */
+.syntax .m { color: #0000FF } /* Literal.Number */
+.syntax .s { color: #5555AA } /* Literal.String */
+.syntax .na { color: #FF0000 } /* Name.Attribute */
+.syntax .nt { color: #000080; font-weight: bold } /* Name.Tag */
+.syntax .ow { font-weight: bold } /* Operator.Word */
+.syntax .w { color: #bbbbbb } /* Text.Whitespace */
+.syntax .mf { color: #5555AA } /* Literal.Number.Float */
+.syntax .mh { color: #5555AA } /* Literal.Number.Hex */
+.syntax .mi { color: #5555AA } /* Literal.Number.Integer */
+.syntax .mo { color: #5555AA } /* Literal.Number.Oct */
+.syntax .sb { color: #5555AA } /* Literal.String.Backtick */
+.syntax .sc { color: #800080 } /* Literal.String.Char */
+.syntax .sd { color: #5555AA } /* Literal.String.Doc */
+.syntax .s2 { color: #5555AA } /* Literal.String.Double */
+.syntax .se { color: #5555AA } /* Literal.String.Escape */
+.syntax .sh { color: #5555AA } /* Literal.String.Heredoc */
+.syntax .si { color: #5555AA } /* Literal.String.Interpol */
+.syntax .sx { color: #5555AA } /* Literal.String.Other */
+.syntax .sr { color: #5555AA } /* Literal.String.Regex */
+.syntax .s1 { color: #5555AA } /* Literal.String.Single */
+.syntax .ss { color: #5555AA } /* Literal.String.Symbol */
+.syntax .il { color: #5555AA } /* Literal.Number.Integer.Long */
+table.i {
+  display: inline-block;
+  border: 1px solid black;
+  border-collapse: collapse;
+}
+table.i td {
+  border: 1px solid black;
+  padding: 2px;
+  margin: 0px;
+}
+table.i td.r {
+  text-align: right;
+}
+table.i thead {
+  font-style: italic;
+}
+</style>
+</head><body>
+<h1 style="margin-top:0px;margin-bottom:0px">Evolution
+of a binary search implementation for line-sorted text files</h1>
+<div class=h1>by Péter Szabó
+&#x3008<a href="mailto:pts@fazekas.hu">pts@fazekas.hu</a>&#x3009;
+at Sun Dec  1 15:31:06 CET 2013</div>
+
+<p>Let's suppose you have a sorted text file, in which each line is
+lexicographically larger than the previous one, and you want to find a
+specific range of lines, or all lines with a specific prefix. This article
+explains the design and implementation details a software which can do that
+for you. If you are not interested in the details, you can
+<a href="http://github.com/pts/pts-line-bisect">get the software</a> and use
+it. Use the C implementation for maximum speed. There is also a Python
+implementation which is easier to understand, reuse as a library and extend
+(but it's slower: it does more lseek(2) and read(2) operations on the file,
+and it also uses a bit more CPU).
+
+<p>Usage instructions are not included here, see the
+<a href="https://github.com/pts/pts-line-bisect">pts-line-bisect project page</a>
+showing the README for that.
+
+<p>A typical real-word use case for such a binary search tool is retrieving
+lines corresponding to a particular time range in log files (or time based
+measurement records). These files text files with variable-length lines, with
+the log timestamp in the beginning of the line, and they are generated in
+increasing timestamp order. Unfortunately the lines are not lexicographically
+sorted, so the timestamp has to be decoded first for the comparison.
+The <a href="https://code.google.com/p/bsearch/">bsearch</a> tool does that,
+it also supports parsing arbitrary, user-specifiable datetime formats, and it
+can binary search in
+<a href="http://en.wikipedia.org/wiki/Gzip">gzip(1)</a>ped files as well
+(by building an index). It's also of high performance and low overhead,
+partially because it is written in C++. So <i>bsearch</i> is practical tool
+with lots of useful features.
+
+<p>In this article we take a more pure approach
+though, and assume that the lines of the input text file are lexicographically
+sorted, and we don't do any decoding. We also assume that lines are spearated
+by <code>'\n'</code> (= 10) bytes. These assumptions work for ASCII, UTF-8 and
+ISO-8859-1 (Latin-1) text. They also work for numbers and dates if they are
+zero-padded (or space-padded), right-aligned, and rendered at constant width.
+
+<p>If each line has the same length, then a simple binary search can be used
+to find the interesting range of lines in O(<i>s</i> &#xB7; log <i>n</i>) time
+(where <i>n</i> is the number of lines and <i>s</i> is the length of each
+line). Actually there are two caveats: two binary search searches are
+needed (one for the start of the interval and one for the end), and
+implementing a binary search can be tricky because of corner cases and
+possible off-by-one errors. We'll address these later below.
+
+<p>The outline of this article:
+
+<ol>
+<li>a quick recap on binary search in a list;
+<li>how to change it so it would work on a text files rather than lists;
+<li>the I/O challenge: how to reduce the amount of disk I/O
+(<a href="http://man7.org/linux/man-pages/man2/lseek.2.html">lseek(2)</a> and
+<a href="http://man7.org/linux/man-pages/man2/read.2.html">read(2)</a>);
+<li>summary and notes.
+</ol>
+
+<h3>Understanding bisection and binary search</h3>
+
+<p>Here is a Python implementation (also available in the built-in
+<a href="http://docs.python.org/2/library/bisect.html">bisect</a> module)
+for finding the start of the interval in a sorted list:
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">bisect_left</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">lo</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">hi</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return the index where to insert item x in list a, assuming a is sorted.</span>
+
+<span class="sd">  The return value i is such that all e in a[:i] have e &lt; x, and all e in</span>
+<span class="sd">  a[i:] have e &gt;= x.  So if x already appears in the list, a.insert(x) will</span>
+<span class="sd">  insert just before the leftmost x already there.</span>
+
+<span class="sd">  Optional args lo (default 0) and hi (default len(a)) bound the</span>
+<span class="sd">  slice of a to be searched.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">if</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;lo must be non-negative&#39;</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">hi</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="n">hi</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+  <span class="k">while</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="n">hi</span><span class="p">:</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">x</span> <span class="o">&lt;=</span> <span class="n">a</span><span class="p">[</span><span class="n">mid</span><span class="p">]:</span>  <span class="c"># Change `&lt;=&#39; to `&lt;&#39;, and you get bisect_right.</span>
+      <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="k">return</span> <span class="n">lo</span></pre>
+
+<p>To avoid the corner case bugs, pay attention to <code>&lt;=</code> versus
+<code>&lt;</code>, and the <code>+1</code> in <code>mid+1</code>.
+<i>bisect_right</i> finds the end of the interval. Its implementation is
+almost the same, you just have to change a <code>&lt;=</code> to
+<code>&lt;</code>. Here is how you can use <i>bisect_left</i> and
+<i>bisect_right</i> to find an remove a range from a list:
+
+<pre class="syntax"><span class="o">&gt;&gt;&gt;</span> <span class="n">a</span> <span class="o">=</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">40</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">60</span><span class="p">]</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span> <span class="nn">bisect</span> <span class="kn">import</span> <span class="n">bisect_left</span><span class="p">,</span> <span class="n">bisect_right</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="o">=</span> <span class="n">bisect_left</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="mi">20</span><span class="p">),</span> <span class="n">bisect_right</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="mi">50</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span>
+<span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="k">del</span> <span class="n">a</span><span class="p">[</span><span class="n">start</span> <span class="p">:</span> <span class="n">end</span><span class="p">]</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">a</span>
+<span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">60</span><span class="p">]</span></pre>
+
+<p>The choice of the meaning of the arguments in and the return value
+<i>bisect_left</i> and <i>bisect_right</i> is smart, because it avoids most
+of the off-by-one errors and most of the related confusion. C++ has
+<a href="http://en.cppreference.com/w/cpp/algorithm/lower_bound">std::lower_bound</a>
+and
+<a href="http://en.cppreference.com/w/cpp/algorithm/lower_bound">std::upper_bound</a>
+(respectively) with the same design, but it uses iterators instead of
+indexes. It is straightforward to port <i>bisect_left</i> and
+<i>bisect_right</i> to C, using either indexes or pointers.
+
+<p>If you need binary search to find a specific element of a sorted list,
+you can use <i>bisect_left</i> and check if the element at the index
+returned is indeed there. You need the check, because <i>bisect_left</i>
+returns a meaningful value (i.e. an insertion offset) even if the element
+you are looking for is missing. As an alternative, you can use
+<i>bisect_right</i>, subtract 1 from the index, and see if it's there.
+Don't forget to do a range check before indexing.
+
+<h3>Binary search in a text file with variable line length</h3>
+
+<p>The basic idea is to do the bisection (index halving) on the byte positions,
+but compare whole lines. This sounds like useless, because if we seek to the
+middle of the file in the beginning, we might end up in the middle of a
+line, and that's useless for comparison. There are two natural fixes for
+that: F1. after the seek, find the beginning of the line; F2. after the
+seek, find the end of the line. They both look feasible, but we are a bit
+afraid of introducing corner case bugs.
+
+<p>Let's choose F2, because F1 needs
+scanning backwards in a file, and the implementation of that sounds ugly.
+A naïve implementation of F2:
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">bisect_left_incorrect</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;... Warning: Incorrect implementation with corner case bugs!&quot;&quot;&quot;</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c"># Seek to EOF.</span>
+  <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+  <span class="k">while</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="n">hi</span><span class="p">:</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">mid</span><span class="p">)</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># Ignore previous line, find our line.</span>
+    <span class="k">if</span> <span class="n">x</span> <span class="o">&lt;=</span> <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">):</span>
+      <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="k">return</span> <span class="n">lo</span></pre>
+
+<p>Three obvious bugs: B1. that it will never find the line in the beginning
+of the file; B2. if <i>x</i> should be inserted to the end of the file, the
+bisection makes the wrong decision, because the 2nd
+<code>f.readline()</code> returns an empty string on EOF; B3. the return value
+doesn't contain the offset of the actual line, but it's in the previous line.
+Surprisingly, there
+are no other bugs (see the proof later). Luckily, it's easy to fix these bugs.
+Interestingly, the first 10 Google search results for
+<a href="https://www.google.com/search?q=binary%20search%20text%20file&amp;hl=en">binary
+search text file</a> show many pieces of code (Java, Python, C#) using the same
+design (i.e. calling <i>readline</i> twice), and most of them contain both
+bugs B1 and B2,
+and neither the authors nor the commenters bothered fixing them.
+
+<p>Here is how to fix bug B1: If <i>mid</i> is 0, then skip the first
+<i>readline</i>, otherwise seek to <i>mid</i> - 1 (rather than <i>mid</i>),
+and do both <i>readline</i>s. It's easy to see that we need both of these
+changes, e.g. if the file starts with 2 <code>\n</code>s, only with both
+changes will the program find both empty lines (the first one at offset 0,
+the second one at offset 1).
+
+<p>Here is how to fix bug B2: If the second <i>readline</i> has returned an
+empty string (because of EOF), force the condition to be false (meaning that
+the position we're looking for is before EOF), thus
+<code>hi = mid</code> would be executed, moving backwards, away from EOF.
+
+<p>Here is how to fix bug B3: Remember the file offset (using
+<code>f.tell</code>) just before the 2nd <i>readline</i>, and return that.
+
+<p>These are easy fixes, but they make the code a bit less elegant a bit
+longer. The following solution also contains a few shortcuts to speed up
+execution in corner cases.
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">bisect_left</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return the smallest offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Bisection (binary search) on newline-separated, sorted file lines.</span>
+<span class="sd">  If you use sort(1) to sort the file, run it as `LC_ALL=C sort&#39; to make it</span>
+<span class="sd">  lexicographically sorted, ignoring locale.</span>
+
+<span class="sd">  If there is no trailing newline at the end of f, and the returned offset is</span>
+<span class="sd">  at the end of f, then don&#39;t forget to append a &#39;\\n&#39; before appending x.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    f: Seekable file object or file-like object to search in. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    x: Line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    Smallest possible byte offset in where where to insert line x.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="k">if</span> <span class="ow">not</span> <span class="n">x</span><span class="p">:</span> <span class="k">return</span> <span class="mi">0</span>  <span class="c"># Shortcut. Don&#39;t do it for bisect_right.</span>
+  <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c"># Seek to EOF.</span>
+  <span class="n">size</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+  <span class="k">if</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span> <span class="k">return</span> <span class="mi">0</span>  <span class="c"># Shortcut.</span>
+  <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="n">mid</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span>
+  <span class="k">while</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="n">hi</span><span class="p">:</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">mid</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+      <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">mid</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># Just to figure out where our line starts.</span>
+      <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># Ignore previous line, find our line.</span>
+      <span class="n">midf</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">midf</span> <span class="o">=</span> <span class="mi">0</span>
+      <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">midf</span><span class="p">)</span>
+    <span class="n">line</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># We read at f.tell() == midf.</span>
+    <span class="c"># EOF (`not line&#39;) is always larger than any line we search for.</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span> <span class="ow">or</span> <span class="n">x</span> <span class="o">&lt;=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">):</span>  <span class="c"># `&lt;&#39; for bisect_right.</span>
+      <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="k">if</span> <span class="n">mid</span> <span class="o">==</span> <span class="n">lo</span><span class="p">:</span> <span class="k">return</span> <span class="n">midf</span>  <span class="c"># Shortcut.</span>
+  <span class="k">if</span> <span class="n">lo</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span> <span class="k">return</span> <span class="mi">0</span>
+  <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">lo</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+  <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+  <span class="k">return</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span></pre>
+
+<p>See the comments in the code above to how it can be changed to
+<i>bisect_right</i> (only one shortcut has to be removed and the usual
+change from <code>&lt;=</code> to <code>&lt;</code> in the line comparison).
+
+<p>Please note that we've dropped the arguments <i>lo</i> and <i>hi</i>,
+because the internal <i>lo</i> and <i>hi</i> variables are not meaningful to
+the caller, because they don't start at the line boundary. It would possible
+to add back support using manual forward or backward scanning for a
+<code>\n</code> in the beginning, but I omitted that here, beause I couldn't
+find a compelling use case for such an ugly piece of code.
+
+<p>It looks like we've completely solved the problem. But in fact we haven't
+proven the correctness (i.e. that the functions return exactly those line
+offsets which their docstring describes), and we haven't yet optimized for
+I/O speed.
+
+<p>For the proof of correctness we can reduce this algorithm to the
+<i>bisect_left</i> for lists, and use the fact that that one is correct. For
+example, let's consider the input file:
+
+<pre>ab
+foo
+world
+zip</pre>
+
+<p>And then see that at which <i>mid</i> offset which <i>line</i> is read:
+
+<p>
+<table class=i><thead><tr><td>mid</td><td>midf</td><td>line</td></tr></thead>
+<tr><td class=r>0</td><td class=r> 0</td><td>ab</td></tr>
+<tr><td class=r>1</td><td class=r> 3</td><td>foo</td></tr>
+<tr><td class=r>2</td><td class=r> 3</td><td>foo</td></tr>
+<tr><td class=r>3</td><td class=r> 3</td><td>foo</td></tr>
+<tr><td class=r>4</td><td class=r> 7</td><td>world</td></tr>
+<tr><td class=r>5</td><td class=r> 7</td><td>world</td></tr>
+<tr><td class=r>6</td><td class=r> 7</td><td>world</td></tr>
+<tr><td class=r>7</td><td class=r> 7</td><td>world</td></tr>
+<tr><td class=r>8</td><td class=r>13</td><td>zip</td></tr>
+</table>
+&nbsp;&nbsp;&nbsp;
+<table class=i>
+<thead><tr><td>mid</td><td>midf</td><td>line</td></tr></thead>
+<tr><td class=r> 9</td><td class=r>13</td><td>zip</td></tr>
+<tr><td class=r>10</td><td class=r>13</td><td>zip</td></tr>
+<tr><td class=r>11</td><td class=r>13</td><td>zip</td></tr>
+<tr><td class=r>12</td><td class=r>13</td><td>zip</td></tr>
+<tr><td class=r>13</td><td class=r>13</td><td>zip</td></tr>
+<tr><td class=r>14</td><td class=r>17</td><td><i>(EOF)</i></td></tr>
+<tr><td class=r>15</td><td class=r>17</td><td><i>(EOF)</i></td></tr>
+<tr><td class=r>16</td><td class=r>17</td><td><i>(EOF)</i></td></tr>
+<tr><td class=r>17</td><td class=r>17</td><td><i>(EOF)</i></td></tr>
+</table>
+
+<p>It looks like that each line (except for the first) is repeated as many
+times as the length of the previous line (including the trailing
+<code>\n</code>). It will turn out that the amount of duplication doesn't
+matter as long as there are no lines removed.
+
+<p>The key observation: If we duplicate some strings in a sorted list, it
+will still remain sorted, thus <i>bisect_left</i> and <i>bisect_right</i>
+give correct results (with the inflated indexes), no matter how many times
+the individual lines were duplicated. So what the line offset-based
+<i>bisect_left</i> above does is that it emulates a longer, inflated list of
+lines, and does a binary search it. The result is an offset within the
+inflated list, but, because we've fixed B2, before returning it,
+<i>bisect_left</i> converts the result to the offset the user is interested
+in (i.e. converting <i>lo</i> from <i>mid</i> to <i>midf</i> offset). To
+conclude the proof, we need to check if the correct translation happens at
+EOF; and it indeed does (because we've fixed B2).
+
+<h3>The full, slow implementation in Python</h3>
+
+<p>See below the full implementation of <i>bisect_right</i> as well, and
+also a new convenience function <i>bisect_interval</i>, which calls
+<i>bisect_left</i> for the interval start and <i>bisect_right</i> for the
+interval end. The seeking and line reading was abstracted away to make it
+possible to introduce caches and speedups later:
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">ofs</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">tester</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Read a line from f at ofs, and test it.</span>
+
+<span class="sd">  Finds out where the line starts, reads the line, calls tester with</span>
+<span class="sd">  the line with newlines stripped, and returns the results.</span>
+
+<span class="sd">  If ofs is in the middle of a line in f, then the following line will be</span>
+<span class="sd">  used, otherwise the line starting at ofs will be used. (The term ``middle&#39;&#39;</span>
+<span class="sd">  includes the offset of the trailing &#39;\\n&#39;.)</span>
+
+<span class="sd">  If the line used starts at EOF, then tester won&#39;t be not</span>
+<span class="sd">  called, and True is used instead.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    cache: Currently ignored.</span>
+<span class="sd">      TODO: Speed it up by adding caching of previous test results.</span>
+<span class="sd">    ofs: The offset in f to read from. If ofs is in the middle of a line, then</span>
+<span class="sd">      the following line will be used.</span>
+<span class="sd">    f: Seekable file object or file-like object to read from. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    tester: Single-argument callable which will be called for the line, with</span>
+<span class="sd">      the trailing &#39;\\n&#39; stripped. If the line used is at EOF, then tester</span>
+<span class="sd">      won&#39;t be called and True will be used as the result.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    List or tuple of the form [fofs, g, dummy], where g is the test result</span>
+<span class="sd">    (or True at EOF), fofs is the start offset of the line used in f,</span>
+<span class="sd">    and dummy is an implementation detail that can be ignored.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">if</span> <span class="n">ofs</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">ofs</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># Just to figure out where our line starts.</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># Ignore previous line, find our line.</span>
+    <span class="n">fofs</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">fofs</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">fofs</span><span class="p">)</span>
+  <span class="n">line</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># We read at f.tell() == fofs.</span>
+  <span class="c"># EOF (`not line&#39;) is always larger than any line we search for.</span>
+  <span class="k">return</span> <span class="n">fofs</span><span class="p">,</span> <span class="p">(</span><span class="ow">not</span> <span class="n">line</span> <span class="ow">or</span> <span class="n">tester</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))),</span> <span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">is_left</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return an offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Bisection (binary search) on newline-separated, sorted file lines.</span>
+<span class="sd">  If you use sort(1) to sort the file, run it as `LC_ALL=C sort&#39; to make it</span>
+<span class="sd">  lexicographically sorted, ignoring locale.</span>
+
+<span class="sd">  If there is no trailing newline at the end of f, and the returned offset is</span>
+<span class="sd">  at the end of f, then don&#39;t forget to append a &#39;\\n&#39; before appending x.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    f: Seekable file object or file-like object to search in. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    x: Line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present.</span>
+<span class="sd">    is_left: If true, emulate bisect_left. See the return value for more info.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    Byte offset in where where to insert line x. If is_left is true (i.e.</span>
+<span class="sd">    bisect_left), then the smallest possible offset is returned, otherwise</span>
+<span class="sd">    (i.e. bisect_right) the largest possible address is returned.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">is_left</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">x</span><span class="p">:</span>  <span class="c"># Shortcut.</span>
+    <span class="k">return</span> <span class="mi">0</span>
+  <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c"># Seek to EOF.</span>
+  <span class="n">size</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+  <span class="k">if</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>  <span class="c"># Shortcut.</span>
+    <span class="k">return</span> <span class="mi">0</span>
+  <span class="k">if</span> <span class="n">is_left</span><span class="p">:</span>
+    <span class="n">tester</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__le__</span>  <span class="c"># x &lt;= y.</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">tester</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__lt__</span>  <span class="c"># x &lt; y.</span>
+  <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="n">mid</span><span class="p">,</span> <span class="n">cache</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="p">[]</span>
+  <span class="k">while</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="n">hi</span><span class="p">:</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span>
+    <span class="n">midf</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">mid</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">tester</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">g</span><span class="p">:</span>
+      <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="k">if</span> <span class="n">mid</span> <span class="o">!=</span> <span class="n">lo</span><span class="p">:</span>
+    <span class="n">midf</span> <span class="o">=</span> <span class="n">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">lo</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">tester</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+  <span class="k">return</span> <span class="n">midf</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_right</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return the largest offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Similar to bisect.bisect_right, but operates on lines rather then elements.</span>
+<span class="sd">  Convenience function which just calls bisect_way(..., is_left=False).</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">return</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_left</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return the smallest offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Similar to bisect.bisect_left, but operates on lines rather then elements.</span>
+<span class="sd">  Convenience function which just calls bisect_way(..., is_left=True).</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">return</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_interval</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">is_open</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return (start, end) offset pair for lines between x and y.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    f: Seekable file object or file-like object to search in. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    x: First line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present.</span>
+<span class="sd">    y: First line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present. If None, x is used.</span>
+<span class="sd">    is_open: If true, then the returned interval consists of lines</span>
+<span class="sd">      x &lt;= line &lt; y. Otherwise it consists of lines x &lt;= line &lt;= y.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    Return (start, end) offset pair containing lines between x and y (see</span>
+<span class="sd">    arg is_open whether x and y are inclusive) in sorted file f, before offset</span>
+<span class="sd">    `size&#39;. These offsets contain the lines: start &lt;= ofs &lt; end. Trailing</span>
+<span class="sd">    &#39;\\n&#39;s are included in the interval (except at EOF if there was none).</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">y</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">x</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="n">end</span> <span class="o">=</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">is_open</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">is_open</span> <span class="ow">and</span> <span class="n">x</span> <span class="o">==</span> <span class="n">y</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">end</span><span class="p">,</span> <span class="n">end</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="c"># TODO: Speed up ignoring everything after offset `end&#39;.</span>
+    <span class="k">return</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">True</span><span class="p">),</span> <span class="n">end</span></pre>
+
+<p>All this is a long piece of code (partially because of the docstrings), but
+it doesn't contain any new ideas or any surprises.
+
+<p>The 2nd call to <i>bisect_way</i> in <i>bisect_interval</i> above
+seems to seems to be doing
+unnecessary work to find the interval start offset, because we already know
+that it won't be larger than <i>end</i>. If it was possible to restrict the
+search to the prefix of the file, limiting it at a specific offset,
+<i>bisect_interval</i> would be faster. Let's introduce a <i>size</i>
+argument for that to each function. Only the <i>_read_and_compare</i>
+changes significantly, the others just pass the <i>size</i> around:
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">ofs</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">tester</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Read a line from f at ofs, and test it.</span>
+
+<span class="sd">  Finds out where the line starts, reads the line, calls tester with</span>
+<span class="sd">  the line with newlines stripped, and returns the results.</span>
+
+<span class="sd">  If ofs is in the middle of a line in f, then the following line will be</span>
+<span class="sd">  used, otherwise the line starting at ofs will be used. (The term ``middle&#39;&#39;</span>
+<span class="sd">  includes the offset of the trailing &#39;\\n&#39;.)</span>
+
+<span class="sd">  Bytes of f after offset `size&#39; will be ignored. If a line spans over</span>
+<span class="sd">  offset `size&#39;, it gets read fully (by f.readline()), and then truncated.</span>
+
+<span class="sd">  If the line used starts at EOF (or at `size&#39;), then tester won&#39;t be not</span>
+<span class="sd">  called, and True is used instead.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    cache: Currently ignored.</span>
+<span class="sd">      TODO: Speed it up by adding caching of previous test results.</span>
+<span class="sd">    ofs: The offset in f to read from. If ofs is in the middle of a line, then</span>
+<span class="sd">      the following line will be used.</span>
+<span class="sd">    f: Seekable file object or file-like object to read from. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    size: Size limit for reading. Bytes in f after offset `size&#39; will be</span>
+<span class="sd">      ignored.</span>
+<span class="sd">    tester: Single-argument callable which will be called for the line, with</span>
+<span class="sd">      the trailing &#39;\\n&#39; stripped. If the line used is at EOF, then tester</span>
+<span class="sd">      won&#39;t be called and True will be used as the result.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    List or tuple of the form [fofs, g, dummy], where g is the test result</span>
+<span class="sd">    (or True at EOF), fofs is the start offset of the line used in f,</span>
+<span class="sd">    and dummy is an implementation detail that can be ignored.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">size</span>
+  <span class="k">if</span> <span class="n">ofs</span><span class="p">:</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">ofs</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># Just to figure out where our line starts.</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># Ignore previous line, find our line.</span>
+    <span class="n">fofs</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">())</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">fofs</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+  <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">fofs</span> <span class="o">&lt;=</span> <span class="n">size</span>
+  <span class="n">g</span> <span class="o">=</span> <span class="bp">True</span>  <span class="c"># EOF is always larger than any line we search for.</span>
+  <span class="k">if</span> <span class="n">fofs</span> <span class="o">&lt;</span> <span class="n">size</span><span class="p">:</span>
+    <span class="n">line</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># We read at f.tell() == fofs.</span>
+    <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">size</span><span class="p">:</span>
+      <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="n">size</span> <span class="o">-</span> <span class="n">fofs</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+      <span class="n">g</span> <span class="o">=</span> <span class="n">tester</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+  <span class="k">return</span> <span class="n">fofs</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">is_left</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return an offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Bisection (binary search) on newline-separated, sorted file lines.</span>
+<span class="sd">  If you use sort(1) to sort the file, run it as `LC_ALL=C sort&#39; to make it</span>
+<span class="sd">  lexicographically sorted, ignoring locale.</span>
+
+<span class="sd">  If there is no trailing newline at the end of f, and the returned offset is</span>
+<span class="sd">  at the end of f, then don&#39;t forget to append a &#39;\\n&#39; before appending x.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    f: Seekable file object or file-like object to search in. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    x: Line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present.</span>
+<span class="sd">    is_left: If true, emulate bisect_left. See the return value for more info.</span>
+<span class="sd">    size: Size limit for reading. Bytes in f after offset `size&#39; will be</span>
+<span class="sd">      ignored. If None, then no limit.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    Byte offset in where where to insert line x. If is_left is true (i.e.</span>
+<span class="sd">    bisect_left), then the smallest possible offset is returned, otherwise</span>
+<span class="sd">    (i.e. bisect_right) the largest possible address is returned.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">is_left</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">x</span><span class="p">:</span>  <span class="c"># Shortcut.</span>
+    <span class="k">return</span> <span class="mi">0</span>
+  <span class="k">if</span> <span class="n">size</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c"># Seek to EOF.</span>
+    <span class="n">size</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+  <span class="k">if</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>  <span class="c"># Shortcut.</span>
+    <span class="k">return</span> <span class="mi">0</span>
+  <span class="k">if</span> <span class="n">is_left</span><span class="p">:</span>
+    <span class="n">tester</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__le__</span>  <span class="c"># x &lt;= y.</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">tester</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__lt__</span>  <span class="c"># x &lt; y.</span>
+  <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="n">mid</span><span class="p">,</span> <span class="n">cache</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">size</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="p">[]</span>
+  <span class="k">while</span> <span class="n">lo</span> <span class="o">&lt;</span> <span class="n">hi</span><span class="p">:</span>
+    <span class="n">mid</span> <span class="o">=</span> <span class="p">(</span><span class="n">lo</span> <span class="o">+</span> <span class="n">hi</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span>
+    <span class="n">midf</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">mid</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">tester</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">g</span><span class="p">:</span>
+      <span class="n">hi</span> <span class="o">=</span> <span class="n">mid</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">lo</span> <span class="o">=</span> <span class="n">mid</span> <span class="o">+</span> <span class="mi">1</span>
+  <span class="k">if</span> <span class="n">mid</span> <span class="o">!=</span> <span class="n">lo</span><span class="p">:</span>
+    <span class="n">midf</span> <span class="o">=</span> <span class="n">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">lo</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">tester</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+  <span class="k">return</span> <span class="n">midf</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_right</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return the largest offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Similar to bisect.bisect_right, but operates on lines rather then elements.</span>
+<span class="sd">  Convenience function which just calls bisect_way(..., is_left=False).</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">return</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_left</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return the smallest offset where to insert line x into sorted file f.</span>
+
+<span class="sd">  Similar to bisect.bisect_left, but operates on lines rather then elements.</span>
+<span class="sd">  Convenience function which just calls bisect_way(..., is_left=True).</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">return</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">bisect_interval</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">is_open</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Return (start, end) offset pair for lines between x and y.</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    f: Seekable file object or file-like object to search in. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    x: First line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present.</span>
+<span class="sd">    y: First line to search for. Must not contain &#39;\\n&#39;, except for maybe a</span>
+<span class="sd">      trailing one, which will be ignored if present. If None, x is used.</span>
+<span class="sd">    is_open: If true, then the returned interval consists of lines</span>
+<span class="sd">      x &lt;= line &lt; y. Otherwise it consists of lines x &lt;= line &lt;= y.</span>
+<span class="sd">    size: Size limit for reading. Bytes in f after offset `size&#39; will be</span>
+<span class="sd">      ignored. If None, then no limit.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    Return (start, end) offset pair containing lines between x and y (see</span>
+<span class="sd">    arg is_open whether x and y are inclusive) in sorted file f, before offset</span>
+<span class="sd">    `size&#39;. These offsets contain the lines: start &lt;= ofs &lt; end. Trailing</span>
+<span class="sd">    &#39;\\n&#39;s are included in the interval (except at EOF if there was none).</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">y</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">x</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+  <span class="n">end</span> <span class="o">=</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">is_open</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">is_open</span> <span class="ow">and</span> <span class="n">x</span> <span class="o">==</span> <span class="n">y</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">end</span><span class="p">,</span> <span class="n">end</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">bisect_way</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="n">end</span><span class="p">),</span> <span class="n">end</span></pre>
+
+<p>Please note that the 2nd call to <i>bisect_way</i> in <i>bisect_interval</i>
+above passes <i>end</i> instead of <i>size</i>; this is how the optimization
+was implemented. Much work in the dependencies, a single call argument
+change in the final location.
+
+<h3>Reducing the number of I/O operations</h3>
+
+<p>In an external (file-based) binary search the slowest operation is the
+disk seek needed for each bisection. Most of the software and hardware
+components would be waiting for the hard disk to move the reading head.
+(Except, of course, that seek times are negligible when non-spinning storage
+hardware such as SSD or memory card is used.)
+
+<p>An out-of-the box solution would be adding the data to more
+disk-efficient key-value store. There are several programs providing such
+stores. Most of them are based on a
+<a href="http://en.wikipedia.org/wiki/B-tree">B-tree</a>,
+<a href="http://en.wikipedia.org/wiki/B*-tree#Variants">B*-tree</a> or
+<a href="http://en.wikipedia.org/wiki/B+_tree">B+-tree</a> data structure if
+sorted iteration and range searches have to be supported, or
+disk-based
+<a href="http://en.wikipedia.org/wiki/Hash_table">hashtables</a> otherwise.
+Some of the high-performance single-machine key-value stores:
+<a href="http://cr.yp.to/cdb.html">cdb</a> (read-only),
+<a href="http://fallabs.com/tokyocabinet/">Tokyo Cabinet</a>,
+<a href="http://fallabs.com/kyotocabinet/">Kyoto Cabinet</a>,
+<a href="http://code.google.com/p/leveldb/">LevelDB</a>;
+see more in the <a href="http://nosql-database.org/">NoSQL software list</a>.
+
+<p>The fundamental speed difference between a B-tree search and a binary
+search in a sorted list stems from the fact that B-trees have a branching
+factor larger than 2 (possibly 100s or 1000s), thus each seeking step in a
+B-tree search reduces possible input size by a factor larger than 2, while
+in a binary search each step reduces the the input size by a factor 2 only
+(i.e. we keep either the bottom half or the top half). So both kinds of
+searches are logarithmic, but the base of the logarithm is different, and
+this causes a constant factor difference in the disk seek count. By careful
+tunig of the constant in B-trees it's usual to have only 2 or 3 disk seeks
+for each search even for 100GB of data, while a binary search in a such
+a large file with 50 bytes per record would need 31 disk seeks. By taking
+10ms as the seek time (see more info about
+<a href="http://en.wikipedia.org/wiki/Hard_disk_drive#Seek_time">typical
+hard disk seek times</a>), a typical B-tree search takes 0.03 second, and a
+typical binary search takes 0.31 second.
+
+<p>In searches the disk seek time usually subsumes disk read times and other
+data processing times (such as comparing the strings in memory or copying
+data from one memory buffer to another). So if we want an in-the-box
+solution to improve the speed of our text file binary search, we should do
+as few seeks as possible. As it is now, the code does an
+<code>f.seek(...)</code> call for each bisection, and the design of the
+binary search doesn't let us do fewer, so it seems that there is no room for
+improvement. But it is: because we can change it so that not every
+<code>f.seek(...)</code> call would require a seek in the kernel
+(i.e. the lseek(2)) system call).
+
+<p>Before making such a change, let's remember that most I/O libraries
+provide input buffering by default. (These include the Python <a
+href="http://docs.python.org/2.7/library/stdtypes.html#file-objects">file</a>
+object, the Ruby
+<a href="http://www.ruby-doc.org/core-2.0.0/File.html">file object</a>,
+the <a href="http://perldoc.perl.org/functions/open.html">files opened in
+Perl</a>, the C <a
+href="http://man7.org/linux/man-pages/man3/stdio.3.html">&lt;stdio.h&gt;</a>
+functions
+and the C++ <a href="http://en.cppreference.com/w/cpp/io">std::istream</a>
+class hierarchy. In Java one has to create a
+<a href="http://docs.oracle.com/javase/7/docs/api/java/io/BufferedInputStream.html">BufferedInputStream</a> or a
+<a href="http://docs.oracle.com/javase/7/docs/api/java/io/BufferedReader.html">BufferedReader</a>
+manually to get read buffering.) That is, each read operation reads at least
+8KB of data (or configurable) from the kernel, and subsequent read operations
+read from the read buffer (i.e. the data already read but not consumed) instead
+of asking the kernel again. The purpose of this is to get rid of the system
+call latency, and not to reduce the number of disk seeks. Because of the need
+for context switching and between-kernel-and-userspace data copies, a system
+call latency (delay) occurs whenever the program calls the kernel. Even without
+this buffering in the program, the number of disk seeks would be equally small,
+because the kernel also does buffering (of at least 4KB), so if there is an
+<a href="http://man7.org/linux/man-pages/man2/lseek.2.html">lseek(2)</a>
+system call followed by a
+<a href="http://man7.org/linux/man-pages/man2/read.2.html">read(2)</a>
+system call to read data from elsewhere, and the new location is close enough
+to the old location, then the kernel can find and return the data from its
+buffers, bypassing the hard disk altogether. (On non-Unix systems the names
+of the system calls are different, but exactly the same happens, as viewed
+from our high-level perspective.)
+
+<p>We don't have to make any code changes to take advantage of this
+kernel-level buffering, because the kernel does it for us by default. For
+example, the last 12 <code>f.seek(...)</code> calls in <i>bisect_left</i>
+operate on the same 4096-byte region (plus the length of the last line),
+which spans over one or two 4KB blocks on disk, and since these blocks have
+been read recently (right in the same <i>bisect_left</i> invocation), the
+kernel returns it from its buffer. Thus the last 11 <code>f.seek(...)</code>
+calls and their corresponding <code>f.readline()</code> calls don't need a
+disk seek or a disk read (unless the last line of the block is very long),
+and thus they will be very fast. Again, we didn't have to make any effort in
+our code to get this speed benefit.
+
+<p>There is another benefit though for which we have to improve our code.
+This is getting rid of the system call latency. If the data is in the kernel
+buffers already (or it is being read read from a fast SSD with at least
+50000 read <a href="http://en.wikipedia.org/wiki/IOPS">IOPS</a> (IO
+operations per second)), then the bottleneck is system call overhead. (In
+interpreted programming languages such as Python there can also be a CPU
+bottleneck because of the slow interpreter. We should also optimize for code
+length because of that.)
+
+<p>So our goal now is to reduce the number of system calls. In Python,
+<code>f.tell()</code> doesn't generate a system call (except for the very
+first time it's called on <code>f</code>), so we have to reduce the number of
+times <code>f.readline()</code> and <code>f.seek(...)</code> is called. There
+is a simple first step on that road: before each <code>f.seek(...)</code>,
+call <code>f.tell()</code> to figure out where we are, and omit the seek call
+if we happen to be at the right position already.
+
+<p>The implementation of this optimization is straightforward, it just adds
+two <code>if</code>s to <code>_read_and_compare</code>:
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">ofs</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">tester</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;...&quot;&quot;&quot;</span>
+  <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">size</span>
+  <span class="k">if</span> <span class="n">ofs</span><span class="p">:</span>
+    <u><span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span> <span class="o">!=</span> <span class="n">ofs</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span></u>  <span class="c"># Avoid lseek(2) call if not needed.</span>
+      <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">ofs</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># Just to figure out where our line starts.</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># Ignore previous line, find our line.</span>
+    <span class="c"># Calling f.tell() is cheap, because Python remembers the lseek(2) retval.</span>
+    <span class="n">fofs</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">())</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="n">fofs</span> <span class="o">=</span> <span class="mi">0</span>
+    <u><span class="k">if</span> <span class="n">size</span> <span class="ow">and</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">():</span></u>  <span class="c"># Avoid lseek(2) call if not needed.</span>
+      <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+  <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">fofs</span> <span class="o">&lt;=</span> <span class="n">size</span>
+  <span class="n">g</span> <span class="o">=</span> <span class="bp">True</span>  <span class="c"># EOF is always larger than any line we search for.</span>
+  <span class="k">if</span> <span class="n">fofs</span> <span class="o">&lt;</span> <span class="n">size</span><span class="p">:</span>
+    <span class="n">line</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># We read at f.tell() == fofs.</span>
+    <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">size</span><span class="p">:</span>
+      <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="n">size</span> <span class="o">-</span> <span class="n">fofs</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+      <span class="n">g</span> <span class="o">=</span> <span class="n">tester</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+  <span class="k">return</span> <span class="n">fofs</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="p">()</span></pre>
+
+<p>A generic idea to reduce the number of system calls is to add a cache to
+the program, and fetch results from the cache instead of the kernel whenever
+possible. Binary search usually doesn't benefit from caching, because it never
+needs the same piece of data again, but our implementation does: as soon as
+the remaining input is very short (just a few lines), it's reading the same
+lines over and over again, with the same <i>midf</i>, but with a different
+<i>mid</i>. To further illustrate this, let's imagine an input file which
+contains a 64-byte line, and the caller is looking for
+a line larger than that. Since it's a binary search and 2<sup>6</sup> = 64,
+<i>bisect_left</i> will need 6 (or one more) attempts to find it. Each time
+it will use a different <i>mid</i>, but the same <i>midf</i> = 64. Remember
+that <i>midf</i> is the offset we get after reading and ignoring a partial
+line after the offset <i>mid</i>.
+
+<p>To get rid of these last few <code>f.readline()</code> calls, we could
+add a cache that maps <i>midf</i> values to their corresponding line
+strings. In the example, the entry (<i>midf</i> = 64, <i>line</i> = EOF)
+would be added to the cache, and then it would be used for the rest of the
+calls, thus eliminating 6 <code>f.readline()</code> calls. (If the caller
+was looking for the empty string, this cache wouldn't help him.) In fact, we
+don't have to record the whole line in the cache, it's enough to remember
+the compare result (<i>g</i>), i.e. if it was smaller than <i>x</i>, the
+line the caller is looker for. That's because the binary search does only
+such comparisons with the file lines, it doesn't use them for anything else.
+
+<p>So this cache can get rid of some of the 2nd <code>f.readline()</code> calls
+in <code>_read_and_compare</code>. But what about the 1st calls, i.e. those
+which figure out <i>midf</i> from <i>mid</i>?
+In the <code>_read_and_compare</code> implementation, <i>fofs</i>
+corresponds to <i>midf</i> and <i>ofs</i> corresponds to <i>mid</i>, so
+let's use this naming. Luckily, we can eliminate some the 1st calls by caching
+<i>ofs</i> in addition to <i>fofs</i>. Let's suppose we have an entry
+(<i>ofs</i> = 42, <i>fofs</i> = 55, <i>g</i> = False) in the cache, and
+<code>_read_and_compare(ofs=48)</code> is called. We can use the cached result
+in this cache entry, because  the cache entry describes a
+a line whose end is at offset 55, and offset 42 is somewhere in the middle in
+the line. Since 42 &le; 48 &le; 55, this implies that offset 48 is also
+somewhere in the middle of the same line, so we can use the cached result,
+<i>g</i> = False. The value of <i>g</i> is not essential here, it would work
+the same way with <i>g</i> = True.
+
+<p>Here is an implementation for such a cache (don't worry if you don't get it
+for the first reading, it will be explained afterwards):
+
+<pre class="syntax"><span class="k">def</span> <span class="nf">_read_and_compare</span><span class="p">(</span><span class="n">cache</span><span class="p">,</span> <span class="n">ofs</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">tester</span><span class="p">):</span>
+  <span class="sd">&quot;&quot;&quot;Read a line from f at ofs, and test it.</span>
+
+<span class="sd">  Finds out where the line starts, reads the line, calls tester with</span>
+<span class="sd">  the line with newlines stripped, and returns the results.</span>
+
+<span class="sd">  If ofs is in the middle of a line in f, then the following line will be</span>
+<span class="sd">  used, otherwise the line starting at ofs will be used. (The term ``middle&#39;&#39;</span>
+<span class="sd">  includes the offset of the trailing &#39;\\n&#39;.)</span>
+
+<span class="sd">  Bytes of f after offset `size&#39; will be ignored. If a line spans over</span>
+<span class="sd">  offset `size&#39;, it gets read fully (by f.readline()), and then truncated.</span>
+
+<span class="sd">  If the line used starts at EOF (or at `size&#39;), then tester won&#39;t be not</span>
+<span class="sd">  called, and True is used instead.</span>
+
+<span class="sd">  A cache of previous offsets and test results is read and updated. The size of</span>
+<span class="sd">  the cache is bounded (it contains at most 4 offsets and 2 test results).</span>
+
+<span class="sd">  Args:</span>
+<span class="sd">    cache: A cache containing previous offsets and test results. It&#39;s a list</span>
+<span class="sd">      of lists. An empty cache is the empty list, so initialize it to []</span>
+<span class="sd">      before the first call. len(cache) is 0, 1, or 2. Each entry in cache is</span>
+<span class="sd">      of the form [fofs, g, ofs].</span>
+<span class="sd">    ofs: The offset in f to read from. If ofs is in the middle of a line, then</span>
+<span class="sd">      the following line will be used.</span>
+<span class="sd">    f: Seekable file object or file-like object to read from. The methods</span>
+<span class="sd">      f.tell(), f.seek(ofs_arg) and f.readline() will be used.</span>
+<span class="sd">    size: Size limit for reading. Bytes in f after offset `size&#39; will be</span>
+<span class="sd">      ignored.</span>
+<span class="sd">    tester: Single-argument callable which will be called for the line, with</span>
+<span class="sd">      the trailing &#39;\\n&#39; stripped. If the line used is at EOF, then tester</span>
+<span class="sd">      won&#39;t be called and True will be used as the result.</span>
+<span class="sd">  Returns:</span>
+<span class="sd">    List or tuple of the form [fofs, g, dummy], where g is the test result</span>
+<span class="sd">    (or True at EOF), fofs is the start offset of the line used in f,</span>
+<span class="sd">    and dummy is an implementation detail that can be ignored.</span>
+<span class="sd">  &quot;&quot;&quot;</span>
+  <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">2</span>
+  <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">size</span>
+  <span class="k">if</span> <span class="n">cache</span> <span class="ow">and</span> <span class="n">cache</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">cache</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span>
+    <span class="n">cache</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>  <span class="c"># Move cache[0] to the end since we&#39;ve just fetched it.</span>
+  <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span>
+    <span class="k">pass</span>  <span class="c"># We&#39;ve found cache[-1] (same index as cache[1]).</span>
+  <span class="k">else</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">ofs</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span> <span class="o">!=</span> <span class="n">ofs</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>  <span class="c"># Avoid lseek(2) call if not needed.</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">ofs</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># Just to figure out where our line starts.</span>
+      <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># Ignore previous line, find our line.</span>
+      <span class="c"># Calling f.tell() is cheap, because Python remembers the lseek(2) retval.</span>
+      <span class="n">fofs</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">fofs</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">ofs</span> <span class="o">&lt;=</span> <span class="n">fofs</span> <span class="o">&lt;=</span> <span class="n">size</span>
+    <span class="k">if</span> <span class="n">cache</span> <span class="ow">and</span> <span class="n">cache</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">fofs</span><span class="p">:</span>
+      <span class="n">cache</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>  <span class="c"># Move cache[0] to the end since we&#39;ve just fetched it.</span>
+      <span class="k">if</span> <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">ofs</span><span class="p">:</span>
+        <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">ofs</span>
+    <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">fofs</span><span class="p">:</span>
+      <span class="k">if</span> <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">ofs</span><span class="p">:</span>
+        <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">ofs</span>
+    <span class="k">else</span><span class="p">:</span>
+      <span class="n">g</span> <span class="o">=</span> <span class="bp">True</span>  <span class="c"># EOF is always larger than any line we search for.</span>
+      <span class="k">if</span> <span class="n">fofs</span> <span class="o">&lt;</span> <span class="n">size</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">fofs</span> <span class="ow">and</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">():</span>
+          <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>  <span class="c"># We read at f.tell() == fofs.</span>
+        <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">size</span><span class="p">:</span>
+          <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="n">size</span> <span class="o">-</span> <span class="n">fofs</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+          <span class="n">g</span> <span class="o">=</span> <span class="n">tester</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+      <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>  <span class="c"># Don&#39;t keep more than 2 items in the cache.</span>
+        <span class="k">del</span> <span class="n">cache</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+      <span class="n">cache</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">fofs</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">ofs</span><span class="p">])</span>
+  <span class="k">return</span> <span class="n">cache</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>  <span class="c"># Return the most recent item of the cache.</span></pre>
+
+<p>Fortunately, we could make this improvement without changing any other
+functions. This was not a coincidence, an oracle was guiding our code and
+interface design. (Another popular explanation is that the real final code was
+written earlier than the code evolution steps in this article.)
+
+<p>Even without understanding the full logic of the implementation above, we
+can easily observe that the size of the cache never increases above 2 entries.
+(Just before it is about to increase, we remove an entry.)
+
+<p>Another observation (albeit a less obvious one), that this is an
+<a href="http://en.wikipedia.org/wiki/Cache_algorithms#Least_Recently_Used">LRU
+cache</a>, i.e. it discards the least recently used entry on overflow. Thus
+it keeps the 2 most recently used entries. The <code>cache.reverse()</code>
+calls keep the cache in usage order: whenever we use entry 0, we call
+<code>cache.reverse()</code> to swap it with entry 1. (If there is no other
+entry besides entry 0, <code>cache.reverse()</code> has no effect. How lucky.)
+<code>del cache[0]</code> is used for removal, which removes the LRU entry,
+and <code>cache.append(...)</code> is used for adding, which appends to the
+end, making the newly added entry the most recently used.
+
+<p>Having understood these properties, the other aspects of the
+implementation is easy to follow. First we try to fetch from the cache by
+<i>ofs</i>. If that fails, we call <code>f.readline()</code> to compute the
+<i>fofs</i>. Then if we match the cache entry by <i>fops</i>, and we try to
+decrease the <i>ofs</i> of an existing cache entry. If there was no match by
+<i>fops</i>, we read the line, compare it, and add the result as a new cache
+entry.
+
+<p>One question remains: wouldn't we benefit from more than 2 cache entries?
+If we limited the cache size to 3 or 4 instead, code execution speed
+wouldn't degrade much, and we could potentially get rid of more
+<code>f.readline()</code> and <code>f.seek()</code> calls. The obvious
+disadvantage is a small increase in complexity. Most of the time we don't
+need more than 2 entries, because the binary search operates on lines far
+from each other. Except, of course, near the end, when it has already hit
+the correct line, but not at the beginning. In that case 2 cache entries
+(one for the good line and one for the next or previous line, from which
+we're trying to distinguish it) are enough. Even with very short (less than
+8 bytes) lines, 13% of the cases the cache eliminated all 3 calls, and in an
+additional 20% of the cases only the 2nd <code>f.readline()</code> call was
+eliminated. Measuring and explaining the additional, potentially small,
+speed benefits of cache sizes 3 and 4 is left as an exercise to you.
+
+<h3>Implementation and perfomance notes for the C code</h3>
+
+<p>In addition to the
+<a href="https://github.com/pts/pts-line-bisect/blob/master/pts_line_bisect.py">Python
+code</a>, this text file binary search algorithm has been
+<a href="https://github.com/pts/pts-line-bisect/blob/master/pts_lbsearch.c">implemented
+in C</a> as well. The C implementation mostly a direct transliteration of the
+Python one, for additional reductions in CPU and memory usage, and increased
+portability for memory-constrained systems (such as Linux-based routers) where
+a Python interpreter is too heavy-weight. It is also a preferred benchmark
+subject: if
+anyone claims to have written a faster text file binary search implementation,
+its speed should be compared to this C implementation's.
+
+<p>Differences in the C and Python implementations:
+
+<ul>
+
+<li>The C implementation is much faster, because avoids lseek(2) and read(2)
+calls as much as possible, while the Python implementation doesn't,
+because in Python the <i>file</i> object discards the read buffer after each
+<i>file.seek</i>. The C implementation solves this problem by adding its own
+layer of buffering above lseek(2) and read(2), thus bypassing the
+buffering and overhead in the <i>FILE *</i> functions defined in
+&lt;stdio.h&gt;. With the custom buffering code, it's even possible (but a bit
+clumsy) to read the file backwards: an lseek(2) and read(2) will happen only
+after each block of 8KB. This works because a buffered seek operation is a
+noop if it's within the read buffer. Python <i>file</i> and some
+&lt;stdio.h&gt; impelementations (such as glibc-2.11) always do an lseek
+system calls (or
+<a href="http://man7.org/linux/man-pages/man2/_llseek.2.html">_llseek(2)</a>,
+its 64-bit equivalent), even when doing relative seeks of 0. (They don't
+discard the read buffer though.)
+
+<li>The C implementation supports prefix search. To emulate prefix search of
+lines starting with <code>bar</code> and <code>foo</code>, and everything
+in between, one can call <code>bisect_interval(f, "bar", "foo~")</code>, where
+<code>~</code> is a byte with a character code larger than any other bytes in
+the file. If there is no such byte (because the file contains all possible
+bytes), the string comparison can be special-cased to return true the end of
+<i>x</i>. The C implementation does this.
+
+<li>The Python implementation is more compact, contains more comments, and it
+is easier to understand (especially after reading this article),
+reuse as a library and extend.
+
+<li>The C implementation has a more versatile command-line interface. The
+Python implementation supports only a subset of the command-line flags.
+
+<li>The Python implementation has lots of unit tests, the C implementation
+doesn't have any.
+
+<li>The C equivalent of <i>bisect_interval</i> does a <i>bisect_left</i> for
+the lower key, and then a <i>bisect_right</i> for the higher key in the rest
+of the file. (The Python implementation is doing it the other way round, for
+convenience.) This is faster if the result interval is a short range near
+the end of the file, such as recent log entries.
+
+<li>The C implementation has a very small memory footprint: only dozens of
+offsets and flags in addition to a single file read buffer (of 8KB by
+default). It's suprising that the lines themselves don't have to be stored in
+memory: they can be read on the fly (from the read buffer) by the comparison,
+and &ndash; as in Python &ndash; only the compare result is cached and used.
+Such a memory optimization is not possible in Python (without further
+slowdowns), because there is no iterator equivalent of
+<code>f.readline()</code>.
+
+<li>The C implementation doesn't do any dynamic memory allocation (except
+possibly by the printfs generating messages), it's so lightweight and so
+low-overhead that it can be used in memory-constrained environments such
+as Linux-based routers.
+
+</ul>
+
+<p>Of course, both implementations support long files (i.e. files longer than
+2GB, whose size gets larger than 31 bits) if the underlying operating system
+and filesystem supports it. Python <i>file</i> objects support these long
+files by default, and for C <i>_FILE_OFFSET_BITS</i> is #defined to 64, and
+this is respected by Linux glibc (and possibly other systems as well).
+
+<p>Have fun binary searching, but don't forget to sort your files first!
+
+</body></html>
