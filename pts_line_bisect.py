@@ -3,7 +3,7 @@
 
 """Newline-separated file line bisection algorithms."""
 
-def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
+def _get_using_cache(ab, ofs, size, fofs_getter, line_getter, tester):
   """Get from cache and update cache.
 
   To create an empty cache, set ab to [].
@@ -23,7 +23,7 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
   elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
     pass
   else:
-    fofs = fofs_getter(ofs)
+    fofs = fofs_getter(ofs, size)
     assert 0 <= ofs <= fofs
     if ab and ab[0][0] == fofs:
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
@@ -37,8 +37,10 @@ def _get_using_cache(ab, ofs, fofs_getter, line_getter, tester):
         del ab[0]
       # In C we can optimize the combination of line_getter and tester: we
       # no need to keep the line in mem, we can compare on-the-fly.
-      ab.append([fofs, tester(line_getter(fofs)), ofs])
+      ab.append([fofs, tester(line_getter(fofs, size)), ofs])
   return ab[-1]  # Return the most recent item of the cache.
+
+
 class LineBisecter(object):
   """Bisection (binary) search on newline-separated, sorted file lines.
 
@@ -49,20 +51,15 @@ class LineBisecter(object):
   as a shared resource.
   """
 
-  __slots__ = ('f', 'size')
+  __slots__ = ('f',)
 
-  def __init__(self, f, size=None):
-    if size is None:
-      f.seek(0, 2)
-      size = f.tell()
+  def __init__(self, f):
     self.f = f
-    self.size = size
 
-  def _readline_at_fofs(self, fofs):
-    """Returns line at fofs, or () on EOF (or truncation at self.size)."""
+  def _readline_at_fofs(self, fofs, size):
+    """Returns line at fofs, or () on EOF (or truncation at size)."""
     if fofs < 0:
       raise ValueError('Negative line read offset.')
-    size = self.size
     f = self.f
     if fofs >= size:
       return ()
@@ -71,30 +68,26 @@ class LineBisecter(object):
       f.seek(fofs)
     line = f.readline()
     if not line:
-      if self.size > ofs:
-        self.size = ofs
       return ()
     line = line.rstrip('\n')
     if fofs + len(line) > size:
       line = line[:size - fofs]
     return line
 
-  def _get_fofs(self, ofs):
+  def _get_fofs(self, ofs, size):
     """Returns fofs (fofs >= ofs)."""
     if not ofs:
       return 0
     if ofs < 0:
       raise ValueError('Negative line read offset.')
-    if ofs >= self.size:
-      return self.size
+    if ofs >= size:
+      return size
     f = self.f
     ofs -= 1
     f.seek(ofs)
     line = f.readline()
     if line:
-      return min(self.size, ofs + len(line))
-    if self.size > ofs:
-      self.size = ofs
+      return min(size, ofs + len(line))
     return ofs
 
   # We encode EOF as () and we use the fact that it is larger than any string.
@@ -127,13 +120,14 @@ class LineBisecter(object):
     while lo < hi:
       mid = (lo + hi) >> 1
       midf, g, _ = _get_using_cache(
-          cache, mid, fofs_getter, line_getter, tester)
+          cache, mid, size, fofs_getter, line_getter, tester)
       if g:
         hi = mid
       else:
         lo = mid + 1
     if mid != lo:
-      midf = _get_using_cache(cache, lo, fofs_getter, line_getter, tester)[0]
+      midf = _get_using_cache(
+          cache, lo, size, fofs_getter, line_getter, tester)[0]
     return midf
 
   def bisect_right(self, x, size=None):
@@ -168,7 +162,7 @@ class LineBisecter(object):
     """
     return self.bisect_way(x, True, size)
 
-  def bisect_interval(self, x, y=None, is_open=False):
+  def bisect_interval(self, x, y=None, is_open=False, size=None):
     """Returns (start, end) offset pairs for lines between x and y.
 
     If is_open is true, then the interval consits of lines x <= line < y.
@@ -179,7 +173,7 @@ class LineBisecter(object):
       y = x
     else:
       y = y.strip('\n')
-    end = self.bisect_way(y, is_open, self.size)
+    end = self.bisect_way(y, is_open, size)
     if is_open and x == y:
       return end, end
     else:
@@ -190,14 +184,12 @@ def test_extra(extra_len):
   import cStringIO
   a = cStringIO.StringIO(
       '10ten\n20twenty\n30\n30\n30\n30\n30\n40forty' + 'z' * extra_len)
-  if extra_len:
-    lb = LineBisecter(a, len(a.getvalue()) - extra_len)
-  else:
-    lb = LineBisecter(a)
+  size = len(a.getvalue()) - extra_len
+  lb = LineBisecter(a)
   def bisect_interval(x, y=None, is_open=False):
-    start, end = lb.bisect_interval(x, y, is_open)
-    data = a.getvalue()[: lb.size]
-    assert 0 <= start <= end <= lb.size, (start, end, lb.size)
+    start, end = lb.bisect_interval(x, y, is_open, size)
+    data = a.getvalue()[:size]
+    assert 0 <= start <= end <= size, (start, end, size)
     if start == end:
       return '-' + data[start : start + 5]
     return data[start : end]
