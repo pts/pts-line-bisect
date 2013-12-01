@@ -81,142 +81,139 @@ def _get_using_cache(ab, ofs, f, size, tester):
   return ab[-1]  # Return the most recent item of the cache.
 
 
-class LineBisecter(object):
-  """Bisection (binary) search on newline-separated, sorted file lines.
+def bisect_way(f, x, is_left, size=None):
+  """Return the smallest offset where to insert line x.
 
+  Bisection (binary) search on newline-separated, sorted file lines.
   If you use sort(1) to sort the file, run it as `LC_ALL=C sort' to make it
   lexicographically sorted, ignoring locale.
 
+  With is_left being true, emulates bisect_left, otherwise emulates
+  bisect_right.
+
   Methods are not thread-safe! They use the file object and the cache (if any)
   as a shared resource.
+
+  TODO(pts): Document why we are not passing lo and hi (ofs vs fofs).
   """
-
-  __slots__ = ('f',)
-
-  def __init__(self, f):
-    self.f = f
-
-  def bisect_way(self, x, is_left, size=None):
-    """Return the smallest offset where to insert line x.
-
-    With is_left being true, emulates bisect_left, otherwise emulates
-    bisect_right.
-
-    TODO(pts): Why aren't we passing lo and hi?
-    """
-    x = x.rstrip('\n')
-    if is_left and not x:  # Shortcut.
-      return 0
-    if size is None:
-      self.f.seek(0, 2)
-      size = self.f.tell()
-    cache = []
-    if is_left:
-      tester = x.__le__  # x <= y.
+  x = x.rstrip('\n')
+  if is_left and not x:  # Shortcut.
+    return 0
+  if size is None:
+    f.seek(0, 2)
+    size = f.tell()
+  cache = []
+  if is_left:
+    tester = x.__le__  # x <= y.
+  else:
+    tester = x.__lt__  # x < y.
+  lo, hi, mid = 0, size, 1
+  while lo < hi:
+    mid = (lo + hi) >> 1
+    midf, g, _ = _get_using_cache(cache, mid, f, size, tester)
+    if g:
+      hi = mid
     else:
-      tester = x.__lt__  # x < y.
-    lo, hi, mid = 0, size, 1
-    while lo < hi:
-      mid = (lo + hi) >> 1
-      midf, g, _ = _get_using_cache(cache, mid, self.f, size, tester)
-      if g:
-        hi = mid
-      else:
-        lo = mid + 1
-    if mid != lo:
-      midf = _get_using_cache(cache, lo, self.f, size, tester)[0]
-    return midf
+      lo = mid + 1
+  if mid != lo:
+    midf = _get_using_cache(cache, lo, f, size, tester)[0]
+  return midf
 
-  def bisect_right(self, x, size=None):
-    """Return the largest offset where to insert line x.
 
-    Similar to bisect.bisect_right.
+def bisect_right(f, x, size=None):
+  """Return the largest offset where to insert line x.
 
-    The return value i is such that all e in a[:i] have e <= x, and all e in
-    a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
-    insert just after the rightmost x already there.
+  Similar to bisect.bisect_right.
 
-    If size is not None, then everything after the first size bytes of the file
-    are ignored.
-    """
-    # TODO(pts): Test this.
-    return self.bisect_way(x, False, size)
+  The return value i is such that all e in a[:i] have e <= x, and all e in
+  a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
+  insert just after the rightmost x already there.
 
-  def bisect_left(self, x, size=None):
-    """Return the smallest offset where to insert line x.
+  If size is not None, then everything after the first size bytes of the file
+  are ignored.
+  """
+  return bisect_way(f, x, False, size)
 
-    Similar to bisect.bisect_left.
 
-    The return value i is such that all e in a[:i] have e < x, and all e in
-    a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
-    insert just before the leftmost x already there.
+def bisect_left(f, x, size=None):
+  """Return the smallest offset where to insert line x.
 
-    Optional args lo (default 0) and hi (default len(a)) bound the
-    slice of a to be searched.
+  Similar to bisect.bisect_left.
 
-    If size is not None, then everything after the first size bytes of the file
-    are ignored.
-    """
-    return self.bisect_way(x, True, size)
+  The return value i is such that all e in a[:i] have e < x, and all e in
+  a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
+  insert just before the leftmost x already there.
 
-  def bisect_interval(self, x, y=None, is_open=False, size=None):
-    """Returns (start, end) offset pairs for lines between x and y.
+  Optional args lo (default 0) and hi (default len(a)) bound the
+  slice of a to be searched.
 
-    If is_open is true, then the interval consits of lines x <= line < y.
-    Otherwise the interval consists of lines x <= line <= y.
-    """
-    x = x.rstrip('\n')
-    if y is None:
-      y = x
-    else:
-      y = y.strip('\n')
-    end = self.bisect_way(y, is_open, size)
-    if is_open and x == y:
-      return end, end
-    else:
-      return self.bisect_left(x, end), end
+  If size is not None, then everything after the first size bytes of the file
+  are ignored.
+  """
+  return bisect_way(f, x, True, size)
+
+
+def bisect_interval(f, x, y=None, is_open=False, size=None):
+  """Returns (start, end) offset pairs for lines between x and y.
+
+  If is_open is true, then the interval consits of lines x <= line < y.
+  Otherwise the interval consists of lines x <= line <= y.
+  """
+  x = x.rstrip('\n')
+  if y is None:
+    y = x
+  else:
+    y = y.strip('\n')
+  end = bisect_way(f, y, is_open, size)
+  if is_open and x == y:
+    return end, end
+  else:
+    return bisect_way(f, x, True, end), end
 
 
 def test_extra(extra_len):
   import cStringIO
-  a = cStringIO.StringIO(
+  f = cStringIO.StringIO(
       '10ten\n20twenty\n30\n30\n30\n30\n30\n40forty' + 'z' * extra_len)
-  size = len(a.getvalue()) - extra_len
-  lb = LineBisecter(a)
-  def bisect_interval(x, y=None, is_open=False):
-    start, end = lb.bisect_interval(x, y, is_open, size)
-    data = a.getvalue()[:size]
+  size = len(f.getvalue()) - extra_len
+  def xbisect_interval(x, y=None, is_open=False):
+    start, end = bisect_interval(f, x, y, is_open, size)
     assert 0 <= start <= end <= size, (start, end, size)
+    data = f.getvalue()[:size]
     if start == end:
       return '-' + data[start : start + 5]
     return data[start : end]
-  assert bisect_interval('30') == '30\n30\n30\n30\n30\n'
-  assert bisect_interval('30', is_open=True) == '-30\n30'
-  assert bisect_interval('31') == '-40for'
-  assert bisect_interval('31', is_open=True) == '-40for'
-  assert bisect_interval('4') == '-40for'
-  assert bisect_interval('4', is_open=True) == '-40for'
-  assert bisect_interval('40') == '-40for'
-  assert bisect_interval('40', is_open=True) == '-40for'
-  assert bisect_interval('41') == '-'
-  assert bisect_interval('41', is_open=True) == '-'
-  assert bisect_interval('25') == '-30\n30'
-  assert bisect_interval('25', is_open=True) == '-30\n30'
-  assert bisect_interval('15') == '-20twe'
-  assert bisect_interval('15', is_open=True) == '-20twe'
-  assert bisect_interval('1') == '-10ten'
-  assert bisect_interval('1', is_open=True) == '-10ten'
-  assert bisect_interval('') == '-10ten'
-  assert bisect_interval('', is_open=True) == '-10ten'
-  assert bisect_interval('10ten') == '10ten\n'
-  assert bisect_interval('10ten', is_open=True) == '-10ten'
-  assert bisect_interval('10ten\n\n\n') == '10ten\n'
-  assert bisect_interval('10', '20') == '10ten\n'
-  assert bisect_interval('10', '20', True) == '10ten\n'
-  assert bisect_interval('10', '20twenty') == '10ten\n20twenty\n'
-  assert bisect_interval('10', '20twenty', is_open=True) == '10ten\n'
-  assert bisect_interval('10', '30') == '10ten\n20twenty\n30\n30\n30\n30\n30\n'
-  assert bisect_interval('10', '30', True) == '10ten\n20twenty\n'
+  assert xbisect_interval('30') == '30\n30\n30\n30\n30\n'
+  assert bisect_left(f, '30', size) == 15
+  assert bisect_right(f, '30', size) == 30
+  assert bisect_left(f, '32', size) == 30
+  assert bisect_right(f, '32', size) == 30
+  assert xbisect_interval('30', is_open=True) == '-30\n30'
+  assert xbisect_interval('31') == '-40for'
+  assert xbisect_interval('31', is_open=True) == '-40for'
+  assert xbisect_interval('4') == '-40for'
+  assert xbisect_interval('4', is_open=True) == '-40for'
+  assert xbisect_interval('40') == '-40for'
+  assert xbisect_interval('40', is_open=True) == '-40for'
+  assert xbisect_interval('41') == '-'
+  assert xbisect_interval('41', is_open=True) == '-'
+  assert xbisect_interval('25') == '-30\n30'
+  assert xbisect_interval('25', is_open=True) == '-30\n30'
+  assert xbisect_interval('15') == '-20twe'
+  assert xbisect_interval('15', is_open=True) == '-20twe'
+  assert xbisect_interval('1') == '-10ten'
+  assert xbisect_interval('1', is_open=True) == '-10ten'
+  assert xbisect_interval('') == '-10ten'
+  assert xbisect_interval('', is_open=True) == '-10ten'
+  assert xbisect_interval('10ten') == '10ten\n'
+  assert xbisect_interval('10ten', is_open=True) == '-10ten'
+  assert xbisect_interval('10ten\n\n\n') == '10ten\n'
+  assert xbisect_interval('10', '20') == '10ten\n'
+  assert xbisect_interval('10', '20', True) == '10ten\n'
+  assert xbisect_interval('10', '20twenty') == '10ten\n20twenty\n'
+  assert xbisect_interval('10', '20twenty', is_open=True) == '10ten\n'
+  assert xbisect_interval('10', '30') == '10ten\n20twenty\n30\n30\n30\n30\n30\n'
+  assert xbisect_interval('10', '30', True) == '10ten\n20twenty\n'
 
 
 def test():
