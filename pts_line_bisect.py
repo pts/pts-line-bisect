@@ -17,9 +17,9 @@ License: GNU GPL v2 or newer, at your choice.
 
 This Python module can be used as a library or a script (see the main
 function). The script is primarily for demo purposes. For production usage,
-please use the C implementation in pts_lbsearch.c, which does less IO (i.e.
-fewer calls to lseek(2) and read(2)), is faster, has more features (i.e.
-more command-line flags).
+please use the C implementation instead in pts_lbsearch.c, which does less
+IO (i.e. fewer calls to lseek(2) and read(2)), is faster, has more features
+(i.e. more command-line flags).
 
 TODO(pts): Add setup.py and upload to PyPi.
 """
@@ -103,19 +103,27 @@ def _read_and_compare(cache, ofs, f, size, tester):
 
 
 def bisect_way(f, x, is_left, size=None):
-  """Return the smallest offset where to insert line x.
+  """Return an offset where to insert line x into sorted file f.
 
-  Bisection (binary) search on newline-separated, sorted file lines.
+  Bisection (binary search) on newline-separated, sorted file lines.
   If you use sort(1) to sort the file, run it as `LC_ALL=C sort' to make it
   lexicographically sorted, ignoring locale.
 
-  With is_left being true, emulates bisect_left, otherwise emulates
-  bisect_right.
+  If there is no trailing newline at the end of f, and the returned offset is
+  at the end of f, then don't forget to append a '\\n' before appending x.
 
-  Methods are not thread-safe! They use the file object and the cache (if any)
-  as a shared resource.
-
-  TODO(pts): Document why we are not passing lo and hi (ofs vs fofs).
+  Args:
+    f: Seekable file object or file-like object to search in. The methods
+      f.tell(), f.seek(ofs_arg) and f.readline() will be used.
+    x: Line to search for. Must not contain '\\n', except for maybe a
+      trailing one, which will be ignored if present.
+    is_left: If true, emulate bisect_left. See the return value for more info.
+    size: Size limit for reading. Bytes in f after offset `size' will be
+      ignored. If None, then no limit.
+  Returns:
+    Byte offset in where where to insert line x. If is_left is true (i.e.
+    bisect_left), then the smallest possible offset is returned, otherwise
+    (i.e. bisect_right) the largest possible address is returned.
   """
   x = x.rstrip('\n')
   if is_left and not x:  # Shortcut.
@@ -143,43 +151,42 @@ def bisect_way(f, x, is_left, size=None):
 
 
 def bisect_right(f, x, size=None):
-  """Return the largest offset where to insert line x.
+  """Return the largest offset where to insert line x into sorted file f.
 
-  Similar to bisect.bisect_left, but operates on lines rather then elements.
-
-  The return value i is such that all e in a[:i] have e <= x, and all e in
-  a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
-  insert just after the rightmost x already there.
-
-  If size is not None, then everything after the first size bytes of the file
-  are ignored.
+  Similar to bisect.bisect_right, but operates on lines rather then elements.
+  Convenience function which just calls bisect_way(..., is_left=False).
   """
   return bisect_way(f, x, False, size)
 
 
 def bisect_left(f, x, size=None):
-  """Return the smallest offset where to insert line x.
+  """Return the smallest offset where to insert line x into sorted file f.
 
   Similar to bisect.bisect_left, but operates on lines rather then elements.
-
-  The return value i is such that all e in a[:i] have e < x, and all e in
-  a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
-  insert just before the leftmost x already there.
-
-  Optional args lo (default 0) and hi (default len(a)) bound the
-  slice of a to be searched.
-
-  If size is not None, then everything after the first size bytes of the file
-  are ignored.
+  Convenience function which just calls bisect_way(..., is_left=True).
   """
   return bisect_way(f, x, True, size)
 
 
 def bisect_interval(f, x, y=None, is_open=False, size=None):
-  """Returns (start, end) offset pairs for lines between x and y.
+  """Return (start, end) offset pair for lines between x and y.
 
-  If is_open is true, then the interval consits of lines x <= line < y.
-  Otherwise the interval consists of lines x <= line <= y.
+  Args:
+    f: Seekable file object or file-like object to search in. The methods
+      f.tell(), f.seek(ofs_arg) and f.readline() will be used.
+    x: First line to search for. Must not contain '\\n', except for maybe a
+      trailing one, which will be ignored if present.
+    y: First line to search for. Must not contain '\\n', except for maybe a
+      trailing one, which will be ignored if present. If None, x is used.
+    is_open: If true, then the returned interval consists of lines
+      x <= line < y. Otherwise it consists of lines x <= line <= y.
+    size: Size limit for reading. Bytes in f after offset `size' will be
+      ignored. If None, then no limit.
+  Returns:
+    Return (start, end) offset pair containing lines between x and y (see
+    arg is_open whether x and y are inclusive) in sorted file f, before offset
+    `size'. These offsets contain the lines: start <= ofs < end. Trailing
+    '\\n's are included in the interval (except at EOF if there was none).
   """
   x = x.rstrip('\n')
   if y is None:
@@ -194,8 +201,15 @@ def bisect_interval(f, x, y=None, is_open=False, size=None):
 
 
 def main(argv):
-  # Command-line is a subset of pts_lbsearch.c. We are a bit slower, because
-  # we seek more.
+  """Command-line tool for binary search in a line-sorted text file.
+
+  Command-line is a subset of pts_lbsearch.c. We are a bit slower, because
+  we seek more.
+
+  For production usage, please use the C implementation instead in
+  pts_lbsearch.c, which does less IO (i.e. fewer calls to lseek(2) and
+  read(2)), is faster, has more features (i.e. more command-line flags).
+  """
   import sys
   def usage_error(msg):
     sys.stderr.write(
