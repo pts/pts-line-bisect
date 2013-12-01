@@ -63,12 +63,14 @@ def _read_and_compare(cache, ofs, f, size, tester):
     (or True at EOF), fofs is the start offset of the line used in f,
     and dummy is an implementation detail that can be ignored.
   """
+  # TODO(pts): Does increasing the cache size from 2 to 3 or 4 increase the hit
+  # rate? Also document it in the article.
   assert len(cache) <= 2
   assert 0 <= ofs <= size
   if cache and cache[0][2] <= ofs <= cache[0][0]:
     cache.reverse()  # Move cache[0] to the end since we've just fetched it.
   elif len(cache) > 1 and cache[-1][2] <= ofs <= cache[-1][0]:
-    pass
+    pass  # We've found cache[-1] (same index as cache[1]).
   else:
     if ofs:
       if f.tell() != ofs - 1:  # Avoid lseek(2) call if not needed.
