@@ -84,7 +84,10 @@ Differences in the C and Python implementations:
 * The Python implementation is just a library, it has no command-line
   interface.
 * The Python implementation has tests.
-* The Python implementation doesn't support prefix search (CM_LP).
+* The C implementation supports prefix search (CM_LP).
+* The C implementation avoids lseek(2) and read(2) calls as much as
+  possible, while the Python implementation doesn't, because in Python the
+  `file' object discards the read buffer after each file.seek.
 * The C equivalent of bisect_interval does a CM_LE search and then a CM_LT
   for the rest. This is faster if the result interval is a short range near
   the end of the file.
