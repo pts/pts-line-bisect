@@ -1088,6 +1088,44 @@ and filesystem supports it. Python <i>file</i> objects support these long
 files by default, and for C <i>_FILE_OFFSET_BITS</i> is #defined to 64, and
 this is respected by Linux glibc (and possibly other systems as well).
 
+<h3>Future work</h3>
+
+<p>You can name it your work or somebody else's work, at your discretion.
+
+<ul>
+
+<li>Run benchmarks on various implementations (including <i>bsearch</i>)
+with various parameters. Adjust the read buffer size. Compare with B-tree
+databases of key-value stores.
+
+<li>Increase the cache entry count from to 2 to 3 or 4, and measure the
+speed difference. Hopefully there is none.
+
+<li>Do a more thorough research on similar software. Compare features and
+benchmark.
+
+<li>Add sparse index generation similar to the
+<a href="http://leveldb.googlecode.com/svn/trunk/doc/table_format.txt">LevelDB
+version of Google SSTable</a>. Add index usage for searching.
+
+<li>Make sparse index generation incremental and thus very fast if only
+a few lines were appended since the last index generation. Let searching use
+the sparse index for the vast indexed part of the data, and revert to binary
+search for the most recent unindexed data.
+
+<li>Add a second-level of sparse index for very long files.
+
+<li>Come up with a smarter read buffering and in-memory caching. Is there an
+idea yielding significant disk seek count improvements?
+
+</ul>
+
+<p>
+<a href="http://ptspts.blogspot.com/2013/12/binary-search-for-line-sorted-text-files.html">Leave
+your comment</a> about this article on my blog. Constructive criticism is
+also welcome. Constructively going into raptures over it is even more
+welcome.
+
 <p>Have fun binary searching, but don't forget to sort your files first!
 
 </body></html>
