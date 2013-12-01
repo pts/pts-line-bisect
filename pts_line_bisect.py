@@ -15,6 +15,10 @@ was not probed with Python 3.x. Feel free to replace the #! line with
 
 License: GNU GPL v2 or newer, at your choice.
 
+See http://pts.github.io/pts-line-bisect/line_bisect_evolution.html
+for a detailed article about the design and analysis of the algorithms
+implemented in this file.
+
 This Python module can be used as a library or a script (see the main
 function). The script is primarily for demo purposes. For production usage,
 please use the C implementation instead in pts_lbsearch.c, which does less

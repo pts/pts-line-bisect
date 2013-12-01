@@ -15,6 +15,10 @@
  * * very small memory usage: only a few dozen of offsets and flags in addition
  *   to a single file read buffer (of 8K by default)
  *
+ * See http://pts.github.io/pts-line-bisect/line_bisect_evolution.html
+ * for a detailed article about the design and analysis of the algorithms
+ * implemented in this file.
+ *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  *
  * TODO(pts): Add flag `-aq' for only CM_LT offset.
