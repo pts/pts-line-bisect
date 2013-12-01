@@ -10,7 +10,7 @@ def _readline_at_fofs(f, fofs, size):
     raise ValueError('Negative line read offset.')
   if fofs >= size:
     return ()
-  # TODO(pts): Maintain an offset map and a line cache.
+  # assert f.tell() == fofs  # TODO(pts): Why false?
   if f.tell() != fofs:  # `if' needed to prevent unnecessary lseek(2) call.
     f.seek(fofs)
   line = f.readline()
@@ -20,22 +20,6 @@ def _readline_at_fofs(f, fofs, size):
   if fofs + len(line) > size:
     line = line[:size - fofs]
   return line
-
-
-def _get_fofs(f, ofs, size):
-  """Returns fofs (fofs >= ofs)."""
-  if not ofs:
-    return 0
-  if ofs < 0:
-    raise ValueError('Negative line read offset.')
-  if ofs >= size:
-    return size
-  ofs -= 1
-  f.seek(ofs)
-  line = f.readline()
-  if line:
-    return min(size, ofs + len(line))
-  return ofs
 
 
 # We encode EOF as () and we use the fact that it is larger than any string.
@@ -60,13 +44,20 @@ def _get_using_cache(ab, ofs, f, size, tester):
   """
   # TODO(pts): Add support for caches larger than 2 (possibly unlimited).
   assert len(ab) <= 2
+  assert ofs < size
   if ab and ab[0][2] <= ofs <= ab[0][0]:
     ab.reverse()  # Move ab[0] to the end since we've just fetched it.
   elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
     pass
   else:
-    fofs = _get_fofs(f, ofs, size)
-    assert 0 <= ofs <= fofs
+    if ofs:
+      f.seek(ofs - 1)
+      f.readline()
+      # Calling f.tell() is cheap, because Python caches the lseek(2) retval.
+      fofs = min(size, f.tell())
+    else:
+      fofs = 0
+    assert 0 <= ofs <= fofs <= size
     if ab and ab[0][0] == fofs:
       ab.reverse()  # Move ab[0] to the end since we've just fetched it.
       if ab[-1][2] > ofs:
@@ -102,12 +93,13 @@ def bisect_way(f, x, is_left, size=None):
   if size is None:
     f.seek(0, 2)
     size = f.tell()
-  cache = []
+  if size <= 0:  # Shortcut.
+    return 0
   if is_left:
     tester = x.__le__  # x <= y.
   else:
     tester = x.__lt__  # x < y.
-  lo, hi, mid = 0, size, 1
+  lo, hi, mid, cache = 0, size - 1, 1, []
   while lo < hi:
     mid = (lo + hi) >> 1
     midf, g, _ = _get_using_cache(cache, mid, f, size, tester)
