@@ -4,13 +4,6 @@
 """Newline-separated file line bisection algorithms."""
 
 
-# We encode EOF as () and we use the fact that it is larger than any string.
-# TODO(pts): Get rid of this.
-assert '' < ()
-assert '\xff' < ()
-assert '\xff' * 5 < ()
-
-
 def _get_using_cache(ab, ofs, f, size, tester):
   """Get from cache and update cache.
 
@@ -50,20 +43,23 @@ def _get_using_cache(ab, ofs, f, size, tester):
         ab[-1][2] = ofs
     else:
       if fofs >= size:
-        line = ()
+        line = ''
       else:
         if not fofs and f.tell():
           f.seek(0)
         line = f.readline()
         if not line:
-          line = ()
+          line = ''
         else:
-          line = line.rstrip('\n')
           if fofs + len(line) > size:
             line = line[:size - fofs]
+      if line:
+        g = tester(line.rstrip('\n'))
+      else:
+        g = True  # EOF is always larger than any line we search for.
       if len(ab) > 1:  # Don't keep more than 2 items in the cache.
         del ab[0]
-      ab.append([fofs, tester(line), ofs])
+      ab.append([fofs, g, ofs])
   return ab[-1]  # Return the most recent item of the cache.
 
 
