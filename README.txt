@@ -63,6 +63,10 @@ offset) of lines containing only foo:
 
   $ pts_lbsearch -ot file.sorted foo
 
+See http://pts.github.io/pts-line-bisect/line_bisect_evolution.html
+for a detailed article about the design and analysis of the algorithms
+pts_lbsearch implements.
+
 pts_lbsearch supports only '\n' as the line separator. '\r' is treated as a
 regular character within the line.
 
