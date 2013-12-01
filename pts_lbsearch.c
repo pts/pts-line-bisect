@@ -12,8 +12,8 @@
  * * no dynamic memory allocation (except possibly for stdio.h)
  * * no unnecessary lseek(2) or read(2) system calls
  * * no unnecessary comparisons for long strings
- * * very small memory usage: only a dozen of offsets of flags in addition to
- *   a single file read buffer (of 8K by default)
+ * * very small memory usage: only a few dozen of offsets and flags in addition
+ *   to a single file read buffer (of 8K by default)
  *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  *
