@@ -4,42 +4,67 @@
 """Newline-separated file line bisection algorithms."""
 
 
-def _get_using_cache(ab, ofs, f, size, tester):
-  """Get from cache and update cache.
+def _read_and_compare(cache, ofs, f, size, tester):
+  """Read a line from f at ofs, and test it.
 
-  To create an empty cache, set ab to [].
+  Finds out where the line starts, reads the line, calls tester with
+  the line with newlines stripped, and returns the results.
 
-  The cache contains 0, or 1 or 2 entries. Each entry is a list of format
-  [fofs, line, ofs].
+  If ofs is in the middle of a line in f, then the following line will be
+  used, otherwise the line starting at ofs will be used. (The term ``middle''
+  includes the offset of the trailing '\\n'.)
 
+  Bytes of f after offset `size' will be ignored. If a line spans over
+  offset `size', it gets read fully (by f.readline()), and then truncated.
+
+  If the line used starts at EOF (or at `size'), then tester won't be not
+  called, and True is used instead.
+
+  A cache of previous offsets and test results is read and updated. The size of
+  the cache is bounded (it contains at most 4 offsets and 2 test results).
+
+  Args:
+    cache: A cache containing previous offsets and test results. It's a list
+      of lists. An empty cache is the empty list, so initialize it to []
+      before the first call. len(cache) is 0, 1, or 2. Each entry in cache is
+      of the form [fofs, g, ofs].
+    ofs: The offset in f to read from. If ofs is in the middle of a line, then
+      the following line will be used.
+    f: Seekable file object or file-like object to read from. The methods
+      f.tell(), f.seek(ofs_arg) and f.readline() will be used.
+    size: Size limit for reading. Bytes in f after offset `size' will be
+      ignored.
+    tester: Single-argument callable which will be called for the line, with
+      the trailing '\\n' stripped. If the line used is at EOF, then tester
+      won't be called and True will be used as the result.
   Returns:
-    List or tuple of the form [fofs, g, dummy], where g is a bool indicating
-    the test result (x-is-less-than-line or x-is-less-or-equal-to-line). The
-    dummy value is useless to the caller.
+    List or tuple of the form [fofs, g, dummy], where g is the test result
+    (or True at EOF), fofs is the start offset of the line used in f,
+    and dummy is an implementation detail that can be ignored.
   """
-  assert len(ab) <= 2
-  assert ofs < size
-  if ab and ab[0][2] <= ofs <= ab[0][0]:
-    ab.reverse()  # Move ab[0] to the end since we've just fetched it.
-  elif len(ab) > 1 and ab[-1][2] <= ofs <= ab[-1][0]:
+  assert len(cache) <= 2
+  assert 0 <= ofs <= size
+  if cache and cache[0][2] <= ofs <= cache[0][0]:
+    cache.reverse()  # Move cache[0] to the end since we've just fetched it.
+  elif len(cache) > 1 and cache[-1][2] <= ofs <= cache[-1][0]:
     pass
   else:
     if ofs:
       if f.tell() != ofs - 1:  # Avoid lseek(2) call if not needed.
-        f.seek(ofs - 1)
-      f.readline()
-      # Calling f.tell() is cheap, because Python caches the lseek(2) retval.
+        f.seek(ofs - 1)  # Just to figure out where our line starts.
+      f.readline()  # Ignore previous line, find our line.
+      # Calling f.tell() is cheap, because Python remembers the lseek(2) retval.
       fofs = min(size, f.tell())
     else:
       fofs = 0
     assert 0 <= ofs <= fofs <= size
-    if ab and ab[0][0] == fofs:
-      ab.reverse()  # Move ab[0] to the end since we've just fetched it.
-      if ab[-1][2] > ofs:
-        ab[-1][2] = ofs
-    elif len(ab) > 1 and ab[-1][0] == fofs:
-      if ab[-1][2] > ofs:
-        ab[-1][2] = ofs
+    if cache and cache[0][0] == fofs:
+      cache.reverse()  # Move cache[0] to the end since we've just fetched it.
+      if cache[-1][2] > ofs:
+        cache[-1][2] = ofs
+    elif len(cache) > 1 and cache[-1][0] == fofs:
+      if cache[-1][2] > ofs:
+        cache[-1][2] = ofs
     else:
       g = True  # EOF is always larger than any line we search for.
       if fofs < size:
@@ -50,10 +75,10 @@ def _get_using_cache(ab, ofs, f, size, tester):
           line = line[:size - fofs]
         if line:
           g = tester(line.rstrip('\n'))
-      if len(ab) > 1:  # Don't keep more than 2 items in the cache.
-        del ab[0]
-      ab.append([fofs, g, ofs])
-  return ab[-1]  # Return the most recent item of the cache.
+      if len(cache) > 1:  # Don't keep more than 2 items in the cache.
+        del cache[0]
+      cache.append([fofs, g, ofs])
+  return cache[-1]  # Return the most recent item of the cache.
 
 
 def bisect_way(f, x, is_left, size=None):
@@ -86,13 +111,13 @@ def bisect_way(f, x, is_left, size=None):
   lo, hi, mid, cache = 0, size - 1, 1, []
   while lo < hi:
     mid = (lo + hi) >> 1
-    midf, g, _ = _get_using_cache(cache, mid, f, size, tester)
+    midf, g, _ = _read_and_compare(cache, mid, f, size, tester)
     if g:
       hi = mid
     else:
       lo = mid + 1
   if mid != lo:
-    midf = _get_using_cache(cache, lo, f, size, tester)[0]
+    midf = _read_and_compare(cache, lo, f, size, tester)[0]
   return midf
 
 
