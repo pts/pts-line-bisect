@@ -17,7 +17,6 @@ def _get_using_cache(ab, ofs, f, size, tester):
     the test result (x-is-less-than-line or x-is-less-or-equal-to-line). The
     dummy value is useless to the caller.
   """
-  # TODO(pts): Add support for caches larger than 2 (possibly unlimited).
   assert len(ab) <= 2
   assert ofs < size
   if ab and ab[0][2] <= ofs <= ab[0][0]:
@@ -42,21 +41,15 @@ def _get_using_cache(ab, ofs, f, size, tester):
       if ab[-1][2] > ofs:
         ab[-1][2] = ofs
     else:
-      if fofs >= size:
-        line = ''
-      else:
+      g = True  # EOF is always larger than any line we search for.
+      if fofs < size:
         if not fofs and f.tell():
           f.seek(0)
-        line = f.readline()
-        if not line:
-          line = ''
-        else:
-          if fofs + len(line) > size:
-            line = line[:size - fofs]
-      if line:
-        g = tester(line.rstrip('\n'))
-      else:
-        g = True  # EOF is always larger than any line we search for.
+        line = f.readline()  # We read at f.tell() == fofs.
+        if f.tell() > size:
+          line = line[:size - fofs]
+        if line:
+          g = tester(line.rstrip('\n'))
       if len(ab) > 1:  # Don't keep more than 2 items in the cache.
         del ab[0]
       ab.append([fofs, g, ofs])
