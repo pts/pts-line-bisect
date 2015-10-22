@@ -20,7 +20,7 @@ Prefix search: print all lines starting with foo, sorted:
 Prefix search: print all lines starting with foo, sorted, but ignore the
 last incomplete line (if any):
 
-  $ pts_lbsearch -p file.sorted foo
+  $ pts_lbsearch -pi file.sorted foo
 
 Prefix range search: print all lines starting with bar or foo or between:
 
@@ -75,8 +75,9 @@ printing them, it never adds a '\n' to the end if there wasn't one. To make
 it ignore the incomplete last line (possibly because an other, slow process
 has not finished writing it), pass the `-i' flag.
 
-If the input is not sorted, pts_lbsearch will most probably less than
-expected. Otherwise it would work correctly (e.g. no segmentation fault).
+If the input is not sorted, pts_lbsearch may print incorrect lines or
+offsets (can be more or less than expected). But it wouldn't crash or fall
+to an infinite loop.
 
 pts_lbsearch works for large files (i.e. larger than 2GB) correctly.
 
@@ -98,9 +99,9 @@ Differences in the C and Python implementations:
   because in Python the `file' object discards the read buffer after each
   file.seek.
 * The Python implementation is more compact, contains more comments, and it
-  is easier to understand, reuse as a library and extend.
+  is easier to understand, to reuse as a library and to extend.
 * The C implementation has a more versatile command-line interface. The Python
-  implementation supports flags etco only.
+  implementation supports flags -etco only.
 * The Python implementation has unit tests.
 * The C implementation supports prefix search (CM_LP).
 * The C equivalent of bisect_interval does a CM_LE search and then a CM_LT
