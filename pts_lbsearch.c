@@ -243,11 +243,12 @@ STATIC int yfgetc(yfile *yf) {
   return *(unsigned char*)yf->p++;
 }
 
-/**
- * If the read buffer is empty, read from yf to the read buffer. Then return
- * a slice of the read buffer (buf_out[:result]) without skipping over it.
- * Returns 0 on EOF. The caller can skip through it by calling
- * yfseek_cur(yf, result) later.
+/* If len <= 0 or at EOF, just returns 0. Otherwise, it makes sure that the
+ * read buffer of yf contains it least 1 byte available (by calling
+ * yfgetc(yf) if needed), and returns min(available, len), thus the return
+ * value is at least 1. Also sets *buf_out so that (*buf_out[:result]) is
+ * the next available bytes with the read buffer. It doesn't skip over these
+ * bytes though, the caller can do it by yfseek_cur(yf, result) later.
  */
 STATIC int yfpeek(yfile *yf, off_t len, const char **buf_out) {
   int available;
