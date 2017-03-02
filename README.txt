@@ -7,6 +7,9 @@ optimized for speed and it is using buffering and cache to avoid unnecessary
 read(2)s and lseek(2)s. It also has a very small, constant memory footprint:
 barely larger than the read buffer (8KB by default).
 
+Send donations to the author of pts-line-bisect:
+https://flattr.com/submit/auto?user_id=pts&url=https://github.com/pts/pts-line-bisect
+
 pts_lbsearch gives correct results only if the bytes of the input file are
 sorted lexicographically. Use LC_ALL=C to get 8-bit, bytewise,
 locale-independent sort(1):
