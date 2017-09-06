@@ -1,11 +1,17 @@
 #define DUMMY \
-  set -ex; ${CC:-gcc} -W -Wall -s -O2 -ansi -Wmissing-declarations \
-      -o pts_lbsearch "$0"; : OK; exit
+  set -ex; ${CC:-gcc} -ansi -W -Wall -Wextra -Werrir-missing-declarations \
+      -s -O2 -DNDEBUG -o pts_lbsearch "$0"; : OK; exit
 /*
  * pts_lbsearch.c: Fast binary search in a line-sorted text file.
  * by pts@fazekas.hu at Sat Nov 30 02:42:03 CET 2013
  *
  * License: GNU GPL v2 or newer, at your choice.
+ *
+ * The line buffering code in the binary search implementation in this file
+ * is very tricky. See
+ * http://pts.github.io/pts-line-bisect/line_bisect_evolution.html for a
+ * detailed explananation, containing the design and analysis of the
+ * algorithms implemented in this file.
  *
  * Nice properties of this implementation:
  *
@@ -14,10 +20,7 @@
  * * no unnecessary comparisons for long strings
  * * very small memory usage: only a few dozen of offsets and flags in addition
  *   to a single file read buffer (of 8K by default)
- *
- * See http://pts.github.io/pts-line-bisect/line_bisect_evolution.html
- * for a detailed article about the design and analysis of the algorithms
- * implemented in this file.
+ * * no printf
  *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  *
@@ -33,14 +36,22 @@
 
 #define YF_READ_BUF_SIZE 8192  /* Must be a power of 2. */
 
+#ifdef __XTINY__
+#include <xtiny.h>
+#undef  assert
+#define assert(x)
+#undef  strerror
+#define strerror(errno) "(errno)"
+#else
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
+#include <stdio.h>  /* Not strictly needed. */
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 /* Win32 compatibility */
 /* TODO(pts): Verify that it works on Win32. */
@@ -89,24 +100,46 @@ typedef struct yfile {
   char rbuf[YF_READ_BUF_SIZE + 2];
 } yfile;
 
+STATIC __attribute__((noreturn)) void die5_code(
+    const char *msg1, const char *msg2, const char *msg3, const char *msg4,
+    const char *msg5, int exit_code) {
+  const size_t msg1_size = strlen(msg1), msg2_size = strlen(msg2);
+  const size_t msg3_size = strlen(msg3), msg4_size = strlen(msg4);
+  const size_t msg5_size = strlen(msg5);  /* !! */
+  (void)!write(STDERR_FILENO, msg1, msg1_size);
+  (void)!write(STDERR_FILENO, msg2, msg2_size);
+  (void)!write(STDERR_FILENO, msg3, msg3_size);
+  (void)!write(STDERR_FILENO, msg4, msg4_size);
+  (void)!write(STDERR_FILENO, msg5, msg5_size);
+  exit(exit_code);
+}
+
+STATIC __attribute__((noreturn)) void die2_strerror(
+    const char *msg1, const char *msg2) {
+  die5_code(msg1, msg2, ": ", strerror(errno), "\n", 2);
+}
+
+STATIC __attribute__((noreturn)) void die1(const char *msg1) {
+  die5_code(msg1, "", "", "", "\n", 2);
+}
+
 /** Constructor. Opens and initializes yf.
  * If size != (off_t)-1, then it will be imposed as a limit.
  */
 STATIC void yfopen(yfile *yf, const char *pathname, off_t size) {
-  int fd = open(pathname, O_RDONLY | O_BINARY);
+  int fd = open(pathname, O_RDONLY | O_BINARY, 0);
   if (fd < 0) {
-    fprintf(stderr, "error: open %s: %s\n", pathname, strerror(errno));
+    die2_strerror("error: open ", pathname);
     exit(2);
   }
   if (size == -1) {
     size = lseek(fd, 0, SEEK_END);
     if (size + 1ULL == 0ULL) {
       if (errno == ESPIPE) {
-        fprintf(stderr, "error: input not seekable, cannot binary search\n");
+        die1("error: input not seekable, cannot binary search");
       } else {
-        fprintf(stderr, "error: lseek end: %s\n", strerror(errno));
+        die2_strerror("error: lseek end", "");
       }
-      exit(2);
     }
   }
   yf->p = yf->rend = yf->rbuf + YF_READ_BUF_SIZE + 1;
@@ -211,14 +244,14 @@ STATIC int yfgetc(yfile *yf) {
       a = lseek(yf->fd, b, SEEK_SET);
       if (a + 1ULL == 0ULL) {
         if (errno == ESPIPE) {
-          fprintf(stderr, "error: input not seekable, cannot binary search.\n");
+          die1("error: input not seekable, cannot binary search");
         } else {
-          fprintf(stderr, "error: lseek set: %s\n", strerror(errno));
+          die2_strerror("error: lseek set", "");  /* !! merge */
         }
         exit(2);
       }
       if (a != b) {  /* Should not happen. */
-        fprintf(stderr, "error: lseek set offset\n");
+        die2_strerror("error: lseek set offset", "");
         exit(2);
       }
       yf->ofs = b;
@@ -227,8 +260,7 @@ STATIC int yfgetc(yfile *yf) {
         yf->size - b : YF_READ_BUF_SIZE;
     got = yf->fd < 0 ? 0 : read(yf->fd, yf->rbuf, need);
     if (got < 0) {
-      fprintf(stderr, "error: read: %s\n", strerror(errno));
-      exit(2);
+      die2_strerror("error: read", "");
     }
     *(yf->rend = yf->rbuf + got) = '\0';
     b += got;
@@ -271,7 +303,7 @@ typedef enum compare_mode_t {
   CM_UNSET,  /* Not set yet. Most functions do not support it. */
 } compare_mode_t;
 
-/* Compare x[:xsize] with a line read from yf. */
+/* Compares x[:xsize] with a line read from yf. */
 STATIC ybool compare_line(yfile *yf, off_t fofs,
                           const char *x, size_t xsize, compare_mode_t cm) {
   int b, c;
@@ -294,6 +326,9 @@ STATIC ybool compare_line(yfile *yf, off_t fofs,
   }
 }
 
+/* Returns the file offset of the line starting at ofs, or if no line
+ * starts their, then the the offset of the next line.
+ */
 STATIC off_t get_fofs(yfile *yf, off_t ofs) {
   int c;
   off_t size;
@@ -320,8 +355,8 @@ struct cache {
   struct cache_entry e[2];
   /* 0: 0,1 are used, 0 is active;
    * 1: 0,1 are used, 1 is active;
-   * 2: 0 is used, 0 is active;
-   * 3: none used.
+   * 2: 0 is used and active, 1 is unused;
+   * 3: 0,1 are unused.
    */
   int active;
 };
@@ -462,51 +497,62 @@ STATIC void bisect_interval(
 
 /* --- main */
 
-STATIC void usage(const char *argv0) {
-  fprintf(stderr,
-          "Binary search (bisection) in a sorted text file\n"
-          "Usage: %s -<flags> <sorted-text-file> <key-x> [<key-y>]\n"
-          "<key-x> is the first key to search for\n"
-          "<key-y> is the last key to search for; default is <key-x>\n"
-          "Flags:\n"
-          "e: do bisect_left, open interval end\n"
-          "t: do bisect_right, closed interval end\n"
-          "b: do bisect_left for interval start (default)\n"
-          "a: do bisect_right for interval start (for append position)\n"
-          "p: do prefix search\n"
-          "c: print file contents (default)\n"
-          "o: print file offsets\n"
-          "q: don't print anything, just detect if there is a match\n"
-          "i: ignore incomplete last line (may be appended to right now)\n",
-          argv0);
+STATIC __attribute__((noreturn)) void usage_error(
+    const char *argv0, const char *msg) {
+  die5_code("Binary search (bisection) in a sorted text file\n"
+            "Usage: ", argv0, "-<flags> <sorted-text-file> <key-x> [<key-y>]\n"
+            "<key-x> is the first key to search for\n"
+            "<key-y> is the last key to search for; default is <key-x>\n"
+            "Flags:\n"
+            "e: do bisect_left, open interval end\n"
+            "t: do bisect_right, closed interval end\n"
+            "b: do bisect_left for interval start (default)\n"
+            "a: do bisect_right for interval start (for append position)\n"
+            "p: do prefix search\n"
+            "c: print file contents (default)\n"
+            "o: print file offsets\n"
+            "q: don't print anything, just detect if there is a match\n"
+            "i: ignore incomplete last line (may be appended to right now)\n"
+            "usage error: ", msg, "\n",
+            1);
 }
 
-STATIC void usage_error(const char *argv0, const char *msg) {
-  usage(argv0);
-  fprintf(stderr, "usage error: %s\n", msg);
-  exit(1);
+STATIC void write_all_to_stdout(const char *buf, size_t size) {
+  size_t got = write(STDOUT_FILENO, buf, size);
+  if (got == size) {
+  } else if (got + 1U == 0U) {
+   die2_strerror("error: write stdout", "");
+  } else {
+   die1("error: short write");
+  }
 }
 
 STATIC void print_range(yfile *yf, off_t start, off_t end) {
-  int need, got;
+  int need;
   const char *buf;
   if (start >= end) return;
   yfseek_set(yf, start);
   end -= start;
-  fflush(stdout);
   while ((need = yfpeek(yf, end, &buf)) > 0) {
-    if ((got = write(STDOUT_FILENO, buf, need)) != need) {
-      if (got < 0) {
-        fprintf(stderr, "error: write stdout: %s\n", strerror(errno));
-      } else {
-        fprintf(stderr, "error: short write\n");
-      }
-      exit(2);
-    }
+    write_all_to_stdout(buf, need);
     yfseek_cur(yf, need);
     end -= need;
   }
   /* \n is not printed at EOF if there isn't any. */
+}
+
+/** Returns p + size of formatted output. */
+static char *format_unsigned(char *p, off_t i) {
+  char *q = p, *result, c;
+  assert(i >= 0);
+  do {
+    *q++ = '0' + (i % 10);
+  } while ((i /= 10) != 0);
+  result = q--;
+  while (p < q) {
+    c = *p; *p++ = *q; *q-- = c;
+  }
+  return result;
 }
 
 typedef enum printing_t {
@@ -530,6 +576,8 @@ int main(int argc, char **argv) {
   const char *flags;
   const char *p;
   char flag;
+  /* Large enough to hold 2 off_t()s and 2 more bytes. */
+  char ofsbuf[sizeof(off_t) * 6 + 2], *ofsp;
   compare_mode_t cm = CM_UNSET;
   compare_mode_t cmstart = CM_UNSET;
   size_t xsize, ysize;
@@ -616,7 +664,10 @@ int main(int argc, char **argv) {
     cache_init(&cache);
     start = bisect_way(yf, &cache, 0, (off_t)-1, x, xsize, cmstart);
     yfclose(yf);
-    printf("%lld\n", (long long)start);
+    ofsp = ofsbuf;
+    ofsp = format_unsigned(ofsp, start);
+    *ofsp++ = '\n';
+    write_all_to_stdout(ofsbuf, ofsp - ofsbuf);
   } else if (printing == PR_DETECT &&
              (!y || (xsize == ysize && 0 == memcmp(x, y, xsize)))) {
     /* This branch is just a shortcut, it doesn't change the results. */
@@ -642,14 +693,15 @@ int main(int argc, char **argv) {
     if (printing == PR_CONTENTS) {
       print_range(yf, start, end);
     } else if (printing == PR_OFFSETS) {
-      printf("%lld %lld\n", (long long)start, (long long)end);
+      ofsp = ofsbuf;
+      ofsp = format_unsigned(ofsp, start);
+      *ofsp++ = ' ';
+      ofsp = format_unsigned(ofsp, end);
+      *ofsp++ = '\n';
+      write_all_to_stdout(ofsbuf, ofsp - ofsbuf);
     }
     yfclose(yf);
     if (start >= end) exit(3);  /* No match found. */
   }
-  if (ferror(stdout)) {
-    fprintf(stderr, "error: error writing lbsearch output\n");
-    exit(2);
-  }
-  return 0;
+  return EXIT_SUCCESS;  /* 0. */
 }
