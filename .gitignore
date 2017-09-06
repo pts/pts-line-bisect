@@ -1,3 +1,10 @@
 *~
 core
 pts_lbsearch
+pts_lbsearch.o
+pts_lbsearch.xstatic
+pts_lbsearch.xtiny
+pts_lbsearch.exe
+pts_lbsearch.darwinc32
+pts_lbsearch.darwinc64
+test.txt
