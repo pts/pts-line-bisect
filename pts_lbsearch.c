@@ -1,11 +1,15 @@
 #define DUMMY \
-  set -ex; ${CC:-gcc} -ansi -W -Wall -Wextra -Werrir-missing-declarations \
+  set -ex; ${CC:-gcc} -ansi -W -Wall -Wextra -Werror=missing-declarations \
       -s -O2 -DNDEBUG -o pts_lbsearch "$0"; : OK; exit
 /*
  * pts_lbsearch.c: Fast binary search in a line-sorted text file.
  * by pts@fazekas.hu at Sat Nov 30 02:42:03 CET 2013
  *
  * License: GNU GPL v2 or newer, at your choice.
+ *
+ * Please note that ordering is the lexicographical order of the byte
+ * strings within the input text file, and the byte 10 (LF, '\n') is used as
+ * terminator (no CR, \r).
  *
  * The line buffering code in the binary search implementation in this file
  * is very tricky. See (ARTICLE)
@@ -34,14 +38,17 @@
 #define _FILE_OFFSET_BITS 64
 #endif
 
-#define YF_READ_BUF_SIZE 8192  /* Must be a power of 2. */
-
 #ifdef __XTINY__
 #include <xtiny.h>
 #undef  assert
 #define assert(x)
 #undef  strerror
 #define strerror(errno) "(errno)"
+#ifndef __XTINY_OFF_T_IS_64_BITS__
+/* In case <xtiny.h> doesn't support _FILE_OFFSET_BITS. */
+#define off_t off64_t
+#define lseek lseek64
+#endif
 #else
 #include <assert.h>
 #include <errno.h>
@@ -65,6 +72,8 @@
 
 typedef char ybool;
 
+#define YF_READ_BUF_SIZE 8192  /* Must be a power of 2. */
+
 /* --- Buffered, seekable file reader.
  *
  * We implement our own optimized buffered file reader, which makes sure that
@@ -79,12 +88,12 @@ typedef char ybool;
 #define YF_READ_BUF_SIZE 8192
 #endif
 
-struct AssertYfReadBufSizeIsPowerOf2 {
+struct AssertYfReadBufSizeIsPowerOf2_Struct {
   int  AssertYfReadBufSizeIsPowerOf2 :
       (YF_READ_BUF_SIZE & (YF_READ_BUF_SIZE - 1)) == 0;
 };
 
-struct AssertYfReadBufSizeIsSmall {
+struct AssertYfReadBufSizeIsSmall_Struct {
   int  AssertYfReadBufSizeIsSmall :
       (((unsigned)YF_READ_BUF_SIZE << 2) >> 2) + 0ULL ==
       YF_READ_BUF_SIZE + 0ULL;
@@ -546,6 +555,54 @@ STATIC void print_range(yfile *yf, off_t start, off_t end) {
   /* \n is not printed at EOF if there isn't any. */
 }
 
+#if defined(__i386__) && __SIZEOF_INT__ == 4 && __SIZEOF_LONG_LONG__ == 8 && \
+    defined(__GNUC__)
+/* A smaller implementation of division for format_unsigned. */
+
+typedef unsigned UInt32;
+typedef unsigned long long UInt64;
+/* Returns *a % b, and sets *a = *a_old / b; */
+STATIC __inline__ UInt32 UInt64DivAndGetMod(UInt64 *a, UInt32 b) {
+  /* http://stackoverflow.com/a/41982320/97248 */
+  UInt32 upper = ((UInt32*)a)[1], r;
+  ((UInt32*)a)[1] = 0;
+  if (upper >= b) {
+    ((UInt32*)a)[1] = upper / b;
+    upper %= b;
+  }
+  __asm__("divl %2" : "=a" (((UInt32*)a)[0]), "=d" (r) :
+      "rm" (b), "0" (((UInt32*)a)[0]), "1" (upper));
+  return r;
+}
+/* Returns *a % b, and sets *a = *a_old / b; */
+STATIC __inline__ UInt32 UInt32DivAndGetMod(UInt32 *a, UInt32 b) {
+  /* gcc-4.4 is smart enough to optimize the / and % to a single divl. */
+  const UInt32 r = *a % b;
+  *a /= b;
+  return r;
+}
+
+/** Returns p + size of formatted output. */
+STATIC char *format_unsigned(char *p, off_t i) {
+  struct AssertOffTSizeIs4or8_Struct {
+    int  AssertOffTSizeIs4or8 : sizeof(i) == 4 || sizeof(i) == 8;
+  };
+  char *q = p, *result, c;
+  assert(i >= 0);
+  do {
+    *q++ = '0' + (
+        sizeof(i) == 8 ? UInt64DivAndGetMod((UInt64*)&i, 10) :
+        sizeof(i) == 4 ? UInt32DivAndGetMod((UInt32*)&i, 10) :
+        0);  /* 0 never happens, see AssertOffTSizeIs4or8 above. */
+  } while (i != 0);
+  result = q--;
+  while (p < q) {
+    c = *p; *p++ = *q; *q-- = c;
+  }
+  return result;
+}
+#else
+
 /** Returns p + size of formatted output. */
 static char *format_unsigned(char *p, off_t i) {
   char *q = p, *result, c;
@@ -559,6 +616,7 @@ static char *format_unsigned(char *p, off_t i) {
   }
   return result;
 }
+#endif
 
 typedef enum printing_t {
   PR_OFFSETS,
