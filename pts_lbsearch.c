@@ -8,7 +8,7 @@
  * License: GNU GPL v2 or newer, at your choice.
  *
  * The line buffering code in the binary search implementation in this file
- * is very tricky. See
+ * is very tricky. See (ARTICLE)
  * http://pts.github.io/pts-line-bisect/line_bisect_evolution.html for a
  * detailed explananation, containing the design and analysis of the
  * algorithms implemented in this file.
@@ -294,7 +294,31 @@ STATIC int yfpeek(yfile *yf, off_t len, const char **buf_out) {
   return len + 0ULL > available + 0ULL ? available : (int)len;
 }
 
-/* --- Bisection (binary search) */
+/* --- Bisection (binary search)
+ *
+ * The algorithms and data structures below are complex, tricky, and very
+ * underdocumented. See (ARTICLE) above for a detailed explanation of both
+ * design and implementation.
+ */
+
+/* Returns the file offset of the line starting at ofs, or if no line
+ * starts their, then the the offset of the next line.
+ */
+STATIC off_t get_fofs(yfile *yf, off_t ofs) {
+  int c;
+  off_t size;
+  assert(ofs >= 0);
+  if (ofs == 0) return 0;
+  size = yfgetsize(yf);
+  if (ofs > size) return size;
+  --ofs;
+  yfseek_set(yf, ofs);
+  for (;;) {
+    if ((c = YFGETCHAR(yf)) < 0) return ofs;
+    ++ofs;
+    if (c == '\n') return ofs;
+  }
+}
 
 typedef enum compare_mode_t {
   CM_LE,  /* True iff x <= y (where y is read from the file). */
@@ -323,25 +347,6 @@ STATIC ybool compare_line(yfile *yf, off_t fofs,
     }
     ++x;
     --xsize;
-  }
-}
-
-/* Returns the file offset of the line starting at ofs, or if no line
- * starts their, then the the offset of the next line.
- */
-STATIC off_t get_fofs(yfile *yf, off_t ofs) {
-  int c;
-  off_t size;
-  assert(ofs >= 0);
-  if (ofs == 0) return 0;
-  size = yfgetsize(yf);
-  if (ofs > size) return size;
-  --ofs;
-  yfseek_set(yf, ofs);
-  for (;;) {
-    if ((c = YFGETCHAR(yf)) < 0) return ofs;
-    ++ofs;
-    if (c == '\n') return ofs;
   }
 }
 
