@@ -555,12 +555,24 @@ STATIC void print_range(yfile *yf, off_t start, off_t end) {
   if (start >= end) return;
   yfseek_set(yf, start);
   end -= start;
+#if defined(__MSDOS__) || defined(_WIN32) || defined(_WIN64)
+  /* _WIN32 and _WIN64 cover __CYGWIN__, __MINGW32__, __MINGW64__ and
+   * _MSC_VER > 1000, no need to check for more.
+   */
+  setmode(STDOUT_FILENO, O_BINARY);
+#endif
   while ((need = yfpeek(yf, end, &buf)) > 0) {
     write_all_to_stdout(buf, need);
     yfseek_cur(yf, need);
     end -= need;
   }
   /* \n is not printed at EOF if there isn't any. */
+#if defined(__MSDOS__) || defined(_WIN32) || defined(_WIN64)
+  /* _WIN32 and _WIN64 cover __CYGWIN__, __MINGW32__, __MINGW64__ and
+   * _MSC_VER > 1000, no need to check for more.
+   */
+  setmode(STDOUT_FILENO, 0);
+#endif
 }
 
 #if defined(__i386__) && __SIZEOF_INT__ == 4 && __SIZEOF_LONG_LONG__ == 8 && \
