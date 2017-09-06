@@ -9,7 +9,11 @@
  *
  * Please note that ordering is the lexicographical order of the byte
  * strings within the input text file, and the byte 10 (LF, '\n') is used as
- * terminator (no CR, \r).
+ * terminator (no CR, \r). If the input file is not sorted, pts_lbsearch.c
+ * won't crash, but the results will be incorrect. On Unix, use
+ * `LC_CTYPE=C sort <file >file.sorted' to sort files. Without LC_CTYPE=C,
+ * sort will use the locale's sort order, which may not be lexicographical if
+ * there are non-ASCII characters in the file.
  *
  * The line buffering code in the binary search implementation in this file
  * is very tricky. See (ARTICLE)
@@ -25,6 +29,10 @@
  * * very small memory usage: only a few dozen of offsets and flags in addition
  *   to a single file read buffer (of 8K by default)
  * * no printf
+ * * compiles without warnings in C and C++
+ *   (gcc -std=c89; gcc -std=c99; gcc -std=c11;
+ *   gcc -ansi; g++ -std=c++98; g++ -std=c++11; g++ -std=ansi; also
+ *   correspondingly with clang and clang++).
  *
  * -Werror=implicit-function-declaration is not supported by gcc-4.1.
  *
@@ -557,7 +565,11 @@ STATIC void print_range(yfile *yf, off_t start, off_t end) {
 
 #if defined(__i386__) && __SIZEOF_INT__ == 4 && __SIZEOF_LONG_LONG__ == 8 && \
     defined(__GNUC__)
-/* A smaller implementation of division for format_unsigned. */
+/* A smaller implementation of division for format_unsigned, which doesn't
+ * call the __udivdi3 (for 64-bit /) and __umoddi3 (for 64-bit %) functions
+ * from libgcc. This implementation can be smaller because the divisor (b) is
+ * only 32 bits.
+ */
 
 typedef unsigned UInt32;
 typedef unsigned long long UInt64;
@@ -596,7 +608,7 @@ STATIC char *format_unsigned(char *p, off_t i) {
         0);  /* 0 never happens, see AssertOffTSizeIs4or8 above. */
   } while (i != 0);
   result = q--;
-  while (p < q) {
+  while (p < q) {  /* Reverse the string between p and q. */
     c = *p; *p++ = *q; *q-- = c;
   }
   return result;
@@ -611,7 +623,7 @@ static char *format_unsigned(char *p, off_t i) {
     *q++ = '0' + (i % 10);
   } while ((i /= 10) != 0);
   result = q--;
-  while (p < q) {
+  while (p < q) {  /* Reverse the string between p and q. */
     c = *p; *p++ = *q; *q-- = c;
   }
   return result;
