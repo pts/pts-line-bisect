@@ -593,71 +593,84 @@ STATIC void __watcall print_range(yfile *yf, off_t start, off_t end) {
 #endif
 }
 
-#if defined(__i386__) && __SIZEOF_INT__ == 4 && __SIZEOF_LONG_LONG__ == 8 && \
-    defined(__GNUC__)
 /* A smaller implementation of division for format_unsigned, which doesn't
  * call the __udivdi3 (for 64-bit /) and __umoddi3 (for 64-bit %) functions
  * from libgcc. This implementation can be smaller because the divisor (b) is
  * only 32 bits.
  */
-
-typedef unsigned UInt32;
-typedef unsigned long long UInt64;
-/* Returns *a % b, and sets *a = *a_old / b; */
-STATIC __inline__ UInt32 __watcall UInt64DivAndGetMod(UInt64 *a, UInt32 b) {
-  /* http://stackoverflow.com/a/41982320/97248 */
-  UInt32 upper = ((UInt32*)a)[1], r;
-  ((UInt32*)a)[1] = 0;
-  if (upper >= b) {
-    ((UInt32*)a)[1] = upper / b;
-    upper %= b;
-  }
-  __asm__("divl %2" : "=a" (((UInt32*)a)[0]), "=d" (r) :
-      "rm" (b), "0" (((UInt32*)a)[0]), "1" (upper));
-  return r;
-}
-/* Returns *a % b, and sets *a = *a_old / b; */
-STATIC __inline__ UInt32 __watcall UInt32DivAndGetMod(UInt32 *a, UInt32 b) {
-  /* gcc-4.4 is smart enough to optimize the / and % to a single divl. */
-  const UInt32 r = *a % b;
-  *a /= b;
-  return r;
-}
-
-/** Returns p + size of formatted output. */
-STATIC char * __watcall format_unsigned(char *p, off_t i) {
-  struct AssertOffTSizeIs4or8_Struct {
-    int  AssertOffTSizeIs4or8 : sizeof(i) == 4 || sizeof(i) == 8;
-  };
-  char *q = p, *result, c;
-  assert(i >= 0);
-  do {
-    *q++ = '0' + (
-        sizeof(i) == 8 ? UInt64DivAndGetMod((UInt64*)&i, 10) :
-        sizeof(i) == 4 ? UInt32DivAndGetMod((UInt32*)&i, 10) :
-        0);  /* 0 never happens, see AssertOffTSizeIs4or8 above. */
-  } while (i != 0);
-  result = q--;
-  while (p < q) {  /* Reverse the string between p and q. */
-    c = *p; *p++ = *q; *q-- = c;
-  }
-  return result;
-}
+#undef USE_SHORT_DIV
+#if defined(__WATCOMC__) && defined(__386__)
+  typedef unsigned UInt32;
+  typedef unsigned long long UInt64;
+  /* Returns *a % b, and sets *a = *a_old / b; */
+  static UInt32 __watcall UInt64DivAndGetMod(UInt64 *a, UInt32 b);
+#  pragma aux UInt64DivAndGetMod = "xor eax, eax"  "mov edx, [ecx+4]"  "cmp edx, ebx"  "jb L3"  "xchg eax, edx"  "div ebx"  "L3: mov [ecx+4], eax"  "mov eax, [ecx]"  "div ebx"  "mov [ecx], eax" __value [__edx] __parm [__ecx] [__ebx] __modify [__eax]
+  /* Returns *a % b, and sets *a = *a_old / b; */
+  static UInt32 UInt32DivAndGetMod(UInt32 *a, UInt32 b);
+#  pragma aux UInt32DivAndGetMod = "mov eax, [ecx]"  "xor edx, edx"  "div ebx"  "mov [ecx], eax" __value [__edx] __parm [__ecx] [__ebx] __modify [__eax]
+#  define USE_SHORT_DIV 1
 #else
+#  if (defined(__GNUC__) || defined(__TINYC__)) && defined(__i386__)
+    typedef unsigned UInt32;
+    typedef unsigned long long UInt64;
+    /* Returns *a % b, and sets *a = *a_old / b; */
+    UInt32 __watcall UInt64DivAndGetMod(UInt64 *a, UInt32 b) {
+      /* http://stackoverflow.com/a/41982320/97248 */
+      UInt32 upper = ((UInt32*)a)[1], r;
+      ((UInt32*)a)[1] = 0;
+      if (upper >= b) {
+        ((UInt32*)a)[1] = upper / b;
+        upper %= b;
+      }
+      __asm__("divl %2" : "=a" (((UInt32*)a)[0]), "=d" (r) :
+          "rm" (b), "0" (((UInt32*)a)[0]), "1" (upper));
+      return r;
+    }
+    /* Returns *a % b, and sets *a = *a_old / b; */
+    UInt32 __watcall UInt32DivAndGetMod(UInt32 *a, UInt32 b) {
+      /* gcc-4.4 is smart enough to optimize the / and % to a single divl. */
+      const UInt32 r = *a % b;
+      *a /= b;
+      return r;
+    }
+#    define USE_SHORT_DIV 1
+#  endif
+#endif
 
-/** Returns p + size of formatted output. */
-static char * __watcall format_unsigned(char *p, off_t i) {
-  char *q = p, *result, c;
-  assert(i >= 0);
-  do {
-    *q++ = '0' + (i % 10);
-  } while ((i /= 10) != 0);
-  result = q--;
-  while (p < q) {  /* Reverse the string between p and q. */
-    c = *p; *p++ = *q; *q-- = c;
+#ifdef USE_SHORT_DIV
+  /** Returns p + size of formatted output. */
+  STATIC char * __watcall format_unsigned(char *p, off_t i) {
+    struct AssertOffTSizeIs4or8_Struct {
+      int  AssertOffTSizeIs4or8 : sizeof(i) == 4 || sizeof(i) == 8;
+    };
+    char *q = p, *result, c;
+    assert(i >= 0);
+    do {
+      *q++ = '0' + (
+          sizeof(i) == 8 ? UInt64DivAndGetMod((UInt64*)&i, 10) :
+          sizeof(i) == 4 ? UInt32DivAndGetMod((UInt32*)&i, 10) :
+          0);  /* 0 never happens, see AssertOffTSizeIs4or8 above. */
+    } while (i != 0);
+    result = q--;
+    while (p < q) {  /* Reverse the string between p and q. */
+      c = *p; *p++ = *q; *q-- = c;
+    }
+    return result;
   }
-  return result;
-}
+  #else
+  /** Returns p + size of formatted output. */
+  static char * __watcall format_unsigned(char *p, off_t i) {
+    char *q = p, *result, c;
+    assert(i >= 0);
+    do {
+      *q++ = '0' + (i % 10);
+    } while ((i /= 10) != 0);
+    result = q--;
+    while (p < q) {  /* Reverse the string between p and q. */
+      c = *p; *p++ = *q; *q-- = c;
+    }
+    return result;
+  }
 #endif
 
 typedef enum printing_t {
