@@ -81,6 +81,10 @@
 #endif
 #endif
 
+#ifndef __WATCOMC__
+#define __watcall  /* Calling convention which makes the code smaller with OpenWatcom C compiler. */
+#endif
+
 /* Win32 compatibility */
 /* TODO(pts): Verify that it works on Win32. */
 #ifndef O_BINARY
@@ -130,7 +134,7 @@ typedef struct yfile {
   char rbuf[YF_READ_BUF_SIZE + 2];
 } yfile;
 
-STATIC __attribute__((noreturn)) void die5_code(
+STATIC __attribute__((noreturn)) void __watcall die5_code(
     const char *msg1, const char *msg2, const char *msg3, const char *msg4,
     const char *msg5, int exit_code) {
   const size_t msg1_size = strlen(msg1), msg2_size = strlen(msg2);
@@ -144,19 +148,19 @@ STATIC __attribute__((noreturn)) void die5_code(
   exit(exit_code);
 }
 
-STATIC __attribute__((noreturn)) void die2_strerror(
+STATIC __attribute__((noreturn)) void __watcall die2_strerror(
     const char *msg1, const char *msg2) {
   die5_code(msg1, msg2, ": ", strerror(errno), "\n", 2);
 }
 
-STATIC __attribute__((noreturn)) void die1(const char *msg1) {
+STATIC __attribute__((noreturn)) void __watcall die1(const char *msg1) {
   die5_code(msg1, "", "", "", "\n", 2);
 }
 
 /** Constructor. Opens and initializes yf.
  * If size != (off_t)-1, then it will be imposed as a limit.
  */
-STATIC void yfopen(yfile *yf, const char *pathname, off_t size) {
+STATIC void __watcall yfopen(yfile *yf, const char *pathname, off_t size) {
   int fd = open(pathname, O_RDONLY | O_BINARY, 0);
   if (fd < 0) {
     die2_strerror("error: open ", pathname);
@@ -180,7 +184,7 @@ STATIC void yfopen(yfile *yf, const char *pathname, off_t size) {
   yf->ofs = -(YF_READ_BUF_SIZE + 1);  /* So yftell(f) would return 0. */
 }
 
-STATIC void yfclose(yfile *yf) {
+STATIC void __watcall yfclose(yfile *yf) {
   if (yf->fd >= 0) {
     close(yf->fd);
     yf->fd = -1;
@@ -192,7 +196,7 @@ STATIC void yfclose(yfile *yf) {
 
 #if 0
 /* Constructor. Opens a file which always returns EOF. */
-STATIC void yfopen_devnull(yfile *yf) {
+STATIC void __watcall yfopen_devnull(yfile *yf) {
   yf->fd = -1;
   yfclose(yf);
   *yf->p = '\0';
@@ -200,17 +204,17 @@ STATIC void yfopen_devnull(yfile *yf) {
 }
 #endif
 
-STATIC off_t yfgetsize(yfile *yf) {
+STATIC off_t __watcall yfgetsize(yfile *yf) {
   return yf->size;
 }
 
 #if 0
-STATIC off_t yftell(yfile *yf) {
+STATIC off_t __watcall yftell(yfile *yf) {
   return yf->p - yf->rbuf + yf->ofs;
 }
 #endif
 
-STATIC off_t yflimit(yfile *yf, off_t size) {
+STATIC off_t __watcall yflimit(yfile *yf, off_t size) {
   off_t ofs;
   if (size + 0ULL < yf->size + 0ULL) {
     yf->size = size;
@@ -232,7 +236,7 @@ STATIC off_t yflimit(yfile *yf, off_t size) {
 }
 
 /* It's possible to seek beyond the file size. */
-STATIC void yfseek_set(yfile *yf, off_t ofs) {
+STATIC void __watcall yfseek_set(yfile *yf, off_t ofs) {
   char * const rbuf1 = yf->rbuf + YF_READ_BUF_SIZE + 1;
   assert(ofs >= 0);
   /* TODO(pts): Convert off_t to its unsigned equivalent? + 0U doesn't seem to
@@ -246,7 +250,7 @@ STATIC void yfseek_set(yfile *yf, off_t ofs) {
   }
 }
 
-STATIC void yfseek_cur(yfile *yf, off_t ofs) {
+STATIC void __watcall yfseek_cur(yfile *yf, off_t ofs) {
   if (ofs + 0ULL <= yf->rend - yf->p + 0ULL) {  /* Shortcut for ofs >= 0. */
     yf->p += ofs;
   } else {
@@ -262,7 +266,7 @@ STATIC void yfseek_cur(yfile *yf, off_t ofs) {
 #define YFUNGET(yf) ((void)--(yf)->p)
 
 /** Returns -1 on EOF, or 0..255. */
-STATIC int yfgetc(yfile *yf) {
+STATIC int __watcall yfgetc(yfile *yf) {
   if (yf->p == yf->rend) {
     off_t a = yf->p - yf->rbuf + yf->ofs, b;  /* a = yftell(yf); */
     int got, need;
@@ -312,7 +316,7 @@ STATIC int yfgetc(yfile *yf) {
  * the next available bytes with the read buffer. It doesn't skip over these
  * bytes though, the caller can do it by yfseek_cur(yf, result) later.
  */
-STATIC int yfpeek(yfile *yf, off_t len, const char **buf_out) {
+STATIC int __watcall yfpeek(yfile *yf, off_t len, const char **buf_out) {
   int available;
   if (len <= 0) return 0;
   available = yf->rend - yf->p;  /* This fits to an int. */
@@ -334,7 +338,7 @@ STATIC int yfpeek(yfile *yf, off_t len, const char **buf_out) {
 /* Returns the file offset of the line starting at ofs, or if no line
  * starts their, then the the offset of the next line.
  */
-STATIC off_t get_fofs(yfile *yf, off_t ofs) {
+STATIC off_t __watcall get_fofs(yfile *yf, off_t ofs) {
   int c;
   off_t size;
   assert(ofs >= 0);
@@ -358,8 +362,9 @@ typedef enum compare_mode_t {
 } compare_mode_t;
 
 /* Compares x[:xsize] with a line read from yf. */
-STATIC ybool compare_line(yfile *yf, off_t fofs,
-                          const char *x, size_t xsize, compare_mode_t cm) {
+STATIC ybool __watcall compare_line(
+    yfile *yf, off_t fofs,
+    const char *x, size_t xsize, compare_mode_t cm) {
   int b, c;
   yfseek_set(yf, fofs);
   c = YFGETCHAR(yf);
@@ -401,12 +406,12 @@ struct cache {
 #define CACHE_GET_ACTIVE(a) ((a) & 1)  /* Valid only if CACHE_HAS_0(a). */
 
 /** Can be called again to clear the cache. */
-STATIC void cache_init(struct cache *cache) {
+STATIC void __watcall cache_init(struct cache *cache) {
   cache->active = 3;
 }
 
 /* x[:xsize] must not contain '\n'. */
-STATIC const struct cache_entry *get_using_cache(
+STATIC const struct cache_entry * __watcall get_using_cache(
     yfile *yf, struct cache *cache, off_t ofs,
     const char *x, size_t xsize, compare_mode_t cm) {
   int a = cache->active;
@@ -448,7 +453,7 @@ STATIC const struct cache_entry *get_using_cache(
   return cache->e + CACHE_GET_ACTIVE(a);
 }
 
-STATIC off_t get_fofs_using_cache(
+STATIC off_t __watcall get_fofs_using_cache(
     yfile *yf, struct cache *cache, off_t ofs) {
   int a = cache->active;
   off_t fofs;
@@ -485,7 +490,7 @@ STATIC off_t get_fofs_using_cache(
  * cm=CM_LT is equivalent to is_left=false and is_open=false.
  * cm=CL_LP is also supported, it does prefix search.
  */
-STATIC off_t bisect_way(
+STATIC off_t __watcall bisect_way(
     yfile *yf, struct cache *cache, off_t lo, off_t hi,
     const char *x, size_t xsize, compare_mode_t cm) {
   const off_t size = yfgetsize(yf);
@@ -511,7 +516,7 @@ STATIC off_t bisect_way(
 }
 
 /* x[:xsize] and y[:ysize] must not contain '\n'. */
-STATIC void bisect_interval(
+STATIC void __watcall bisect_interval(
     yfile *yf, off_t lo, off_t hi, compare_mode_t cm,
     const char *x, size_t xsize,
     const char *y, size_t ysize,
@@ -532,7 +537,7 @@ STATIC void bisect_interval(
 
 /* --- main */
 
-STATIC __attribute__((noreturn)) void usage_error(
+STATIC __attribute__((noreturn)) void __watcall usage_error(
     const char *argv0, const char *msg) {
   die5_code("Binary search (bisection) in a sorted text file\n"
             "Usage: ", argv0, "-<flags> <sorted-text-file> <key-x> [<key-y>]\n"
@@ -552,7 +557,7 @@ STATIC __attribute__((noreturn)) void usage_error(
             1);
 }
 
-STATIC void write_all_to_stdout(const char *buf, size_t size) {
+STATIC void __watcall write_all_to_stdout(const char *buf, size_t size) {
   size_t got = write(STDOUT_FILENO, buf, size);
   if (got == size) {
   } else if (got + 1U == 0U) {
@@ -562,7 +567,7 @@ STATIC void write_all_to_stdout(const char *buf, size_t size) {
   }
 }
 
-STATIC void print_range(yfile *yf, off_t start, off_t end) {
+STATIC void __watcall print_range(yfile *yf, off_t start, off_t end) {
   int need;
   const char *buf;
   if (start >= end) return;
@@ -599,7 +604,7 @@ STATIC void print_range(yfile *yf, off_t start, off_t end) {
 typedef unsigned UInt32;
 typedef unsigned long long UInt64;
 /* Returns *a % b, and sets *a = *a_old / b; */
-STATIC __inline__ UInt32 UInt64DivAndGetMod(UInt64 *a, UInt32 b) {
+STATIC __inline__ UInt32 __watcall UInt64DivAndGetMod(UInt64 *a, UInt32 b) {
   /* http://stackoverflow.com/a/41982320/97248 */
   UInt32 upper = ((UInt32*)a)[1], r;
   ((UInt32*)a)[1] = 0;
@@ -612,7 +617,7 @@ STATIC __inline__ UInt32 UInt64DivAndGetMod(UInt64 *a, UInt32 b) {
   return r;
 }
 /* Returns *a % b, and sets *a = *a_old / b; */
-STATIC __inline__ UInt32 UInt32DivAndGetMod(UInt32 *a, UInt32 b) {
+STATIC __inline__ UInt32 __watcall UInt32DivAndGetMod(UInt32 *a, UInt32 b) {
   /* gcc-4.4 is smart enough to optimize the / and % to a single divl. */
   const UInt32 r = *a % b;
   *a /= b;
@@ -620,7 +625,7 @@ STATIC __inline__ UInt32 UInt32DivAndGetMod(UInt32 *a, UInt32 b) {
 }
 
 /** Returns p + size of formatted output. */
-STATIC char *format_unsigned(char *p, off_t i) {
+STATIC char * __watcall format_unsigned(char *p, off_t i) {
   struct AssertOffTSizeIs4or8_Struct {
     int  AssertOffTSizeIs4or8 : sizeof(i) == 4 || sizeof(i) == 8;
   };
@@ -641,7 +646,7 @@ STATIC char *format_unsigned(char *p, off_t i) {
 #else
 
 /** Returns p + size of formatted output. */
-static char *format_unsigned(char *p, off_t i) {
+static char * __watcall format_unsigned(char *p, off_t i) {
   char *q = p, *result, c;
   assert(i >= 0);
   do {
