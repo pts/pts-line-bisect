@@ -46,19 +46,21 @@
 #define _FILE_OFFSET_BITS 64
 #endif
 
-#ifdef __XTINY__
-#include <xtiny.h>
+#if defined(__XTINY__) || defined(__MINILIBC686__)
+#define NDEBUG
+#endif
+
+#ifdef NDEBUG
 #undef  assert
 #define assert(x)
-#undef  strerror
-#define strerror(errno) "(errno)"
-#ifndef __XTINY_OFF_T_IS_64_BITS__
-/* In case <xtiny.h> doesn't support _FILE_OFFSET_BITS. */
-#define off_t off64_t
-#define lseek lseek64
 #endif
+
+#ifdef __XTINY__
+#include <xtiny.h>
 #else
+#ifndef NDEBUG
 #include <assert.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>  /* Not strictly needed. */
@@ -66,6 +68,17 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
+
+#if defined(__XTINY__) || defined(__MINILIBC686__)
+#define NDEBUG
+#undef  strerror
+#define strerror(errno) "(errno)"
+#ifndef __XTINY_OFF_T_IS_64_BITS__
+/* In case <xtiny.h> doesn't support _FILE_OFFSET_BITS. */
+#define off_t off64_t
+#define lseek lseek64
+#endif
 #endif
 
 /* Win32 compatibility */
