@@ -1,4 +1,5 @@
 #! /bin/sh
+# xtiny is part of https://github.com/pts/pts-xtiny
 set -ex
 xtiny gcc -W -Wall -Wextra \
     -Werror=missing-declarations -Werror=implicit-function-declaration \
